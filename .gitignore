@@ -259,3 +259,9 @@ paket-files/
 # Python Tools for Visual Studio (PTVS)
 __pycache__/
 *.pyc
+
+# PDFQFZ local dependencies and runtime data
+/Dependencies/*.dll
+/PDFQFZ/config.ini
+/PDFQFZ/yz.log
+/PDFQFZ/pdfqfz.pfx

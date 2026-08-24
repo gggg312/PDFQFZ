@@ -199,7 +199,7 @@ namespace PDFQFZ
             this.log.ScrollBars = System.Windows.Forms.ScrollBars.Both;
             this.log.Size = new System.Drawing.Size(441, 119);
             this.log.TabIndex = 10;
-            this.log.Text = "提示:建议使用472像素以上且背景透明的印章图片.\r\n使用合并模式会导致文字不可编辑,并且原数字签名丢失.随意骑缝章和自定义加印章共用右边的预览定位,所以同时使用" +
+            this.log.Text = "提示:建议使用472像素以上且背景透明的印章图片.\r\n使用合并模式会导致文字不可编辑,并且原数字签名丢失.随意骑缝章和手动点击盖章共用右边的预览定位,所以同时使用" +
     "的时候会冲突,建议分开盖章.";
             // 
             // comboYz
@@ -209,10 +209,8 @@ namespace PDFQFZ
             this.comboYz.FormattingEnabled = true;
             this.comboYz.Items.AddRange(new object[] {
             "全都不加印章",
-            "首页不加印章",
-            "尾页不加印章",
-            "所有页加印章",
-            "自定义加印章"});
+            "手动点击盖章",
+            "指定范围页盖章"});
             this.comboYz.Location = new System.Drawing.Point(240, 12);
             this.comboYz.Name = "comboYz";
             this.comboYz.Size = new System.Drawing.Size(113, 28);
@@ -744,7 +742,7 @@ namespace PDFQFZ
             this.KeyPreview = true;
             this.MaximizeBox = false;
             this.Name = "Form1";
-            this.Text = "PDF加盖骑缝章(v1.33 AI加强版)";
+            this.Text = "PDF加盖骑缝章(v1.34 AI加强版)";
             this.Load += new System.EventHandler(this.Form1_Load);
             ((System.ComponentModel.ISupportInitialize)(this.pictureBox2)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBox1)).EndInit();
@@ -810,4 +808,3 @@ namespace PDFQFZ
         private System.Windows.Forms.TextBox txtAllow;
     }
 }
-

@@ -19,13 +19,17 @@
   <ItemGroup>
     <Compile Include="..\PDFQFZ\Library\CommandLineFileLoader.cs" Link="CommandLineFileLoader.cs" />
     <Compile Include="..\PDFQFZ\Library\PageCache.cs" Link="PageCache.cs" />
+    <Compile Include="..\PDFQFZ\Library\OutputFileNamingPolicy.cs" Link="OutputFileNamingPolicy.cs" />
+    <Compile Include="..\PDFQFZ\Library\PageRange.cs" Link="PageRange.cs" />
     <Compile Include="..\PDFQFZ\Library\StampPlacementPolicy.cs" Link="StampPlacementPolicy.cs" />
     <Compile Include="..\PDFQFZ\Library\StampRenderPolicy.cs" Link="StampRenderPolicy.cs" />
     <Compile Include="..\PDFQFZ\Library\PreviewPanelLayout.cs" Link="PreviewPanelLayout.cs" />
     <Compile Include="..\PDFQFZ\Library\SeamStampPolicy.cs" Link="SeamStampPolicy.cs" />
+    <Compile Include="..\PDFQFZ\Library\StampPlacement.cs" Link="StampPlacement.cs" />
     <Compile Include="..\PDFQFZ\Library\PreviewOverlayRequestGate.cs" Link="PreviewOverlayRequestGate.cs" />
     <Compile Include="..\PDFQFZ\Library\PreviewStampLayout.cs" Link="PreviewStampLayout.cs" />
     <Compile Include="..\PDFQFZ\Library\PreviewValueSanitizer.cs" Link="PreviewValueSanitizer.cs" />
     <Compile Include="..\PDFQFZ\Library\WhiteTransparencyHelper.cs" Link="WhiteTransparencyHelper.cs" />
+    <Compile Include="..\PDFQFZ\Library\UiInteractionPolicies.cs" Link="UiInteractionPolicies.cs" />
   </ItemGroup>
 </Project>

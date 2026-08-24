@@ -5,11 +5,11 @@ using System.Runtime.InteropServices;
 // 有关程序集的一般信息由以下
 // 控制。更改这些特性值可修改
 // 与程序集关联的信息。
-[assembly: AssemblyTitle("PDFQFZ")]
-[assembly: AssemblyDescription("PDF加盖骑缝章")]
+[assembly: AssemblyTitle("PDF盖页面章与骑缝章工具")]
+[assembly: AssemblyDescription("PDF页面印章与骑缝章处理工具（GG优化版）")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("flytkgl")]
-[assembly: AssemblyProduct("PDFQFZ")]
+[assembly: AssemblyProduct("PDF盖页面章与骑缝章工具")]
 [assembly: AssemblyCopyright("Copyright ©  2018-2025")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
@@ -32,5 +32,5 @@ using System.Runtime.InteropServices;
 // 可以指定所有值，也可以使用以下所示的 "*" 预置版本号和修订号
 // 方法是按如下所示使用“*”: :
 // [assembly: AssemblyVersion("1.0.*")]
-[assembly: AssemblyVersion("1.33.0.0")]
-[assembly: AssemblyFileVersion("1.33.0.0")]
+[assembly: AssemblyVersion("1.0.0.0")]
+[assembly: AssemblyFileVersion("1.0.0.0")]
