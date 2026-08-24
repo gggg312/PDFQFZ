@@ -4,6 +4,8 @@
 
 本项目基于 [flytkgl/PDFQFZ](https://github.com/flytkgl/PDFQFZ) 的 `v1.33` 源码进行个人使用和界面、功能优化。感谢原作者开源并持续维护这个工具。本仓库保留上游项目链接和原有作者信息，与原仓库相关的问题和更新仍应参考上游仓库。
 
+<img width="1502" height="932" alt="image" src="https://github.com/user-attachments/assets/b1ac601d-98f4-464f-8b64-efea988951e5" />
+
 ## 本版改动大纲
 
 1. 重新设计界面布局，放大软件窗口和 PDF 预览区域，方便查看和定位。
