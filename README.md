@@ -72,5 +72,4 @@
 
 可执行文件将随 GitHub Release 发布，发布页面会提供文件名和 SHA-256 校验值。
 
-![PDFQFZ 原项目界面](./pdfqfz.jpg)
 
