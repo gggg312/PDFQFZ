@@ -2,7 +2,6 @@
 using iTextSharp.text.exceptions;
 using iTextSharp.text.pdf;
 using iTextSharp.text.pdf.security;
-using O2S.Components.PDFRender4NET;
 using PDFQFZ.Library;
 using System;
 using System.Collections.Generic;
@@ -45,8 +44,8 @@ namespace PDFQFZ
 
         //@loquat 20250920 增加全局参数
         int fixType;
-        string fixStr;
-        string fixStr2;
+        string fixStr = "已盖章";
+        string fixStr2 = "加密";
         string signBuiltInPath;
         string signBuiltInPass;
         string signCustomPath;
@@ -84,7 +83,7 @@ namespace PDFQFZ
         Bitmap imgYz = null;   //签章图片对象
         Bitmap[] viewPdfimgs = null;         //预览的pdf列表， viewPdfimgs[imgStartPage-1]表示当前在预览的图片
         PageCache<Bitmap> previewPageCache = null;
-        PDFFile previewPdfFile = null;
+        IPdfDocumentRenderer previewPdfRenderer = null;
         Bitmap cachedTransparentStamp = null;
         string cachedTransparentStampKey = "";
         readonly object transparentStampCacheSync = new object();
@@ -142,10 +141,10 @@ namespace PDFQFZ
 
                 //@loquat 20250920
                 string FixType = iniFileHelper.ContentValue(section, "fixType");//输出结果前后缀类型
-                fixStr = iniFileHelper.ContentValue(section, "fixStr"); //输出结果前后缀文本
-                if (fixStr.Length == 0) { fixStr = "已盖章"; }          //在这里配置默认值
-                fixStr2 = iniFileHelper.ContentValue(section, "fixStr2"); //加密后缀
-                if (fixStr.Length == 0) { fixStr = "加密"; }            //在这里配置默认值
+                string configuredFixStr = iniFileHelper.ContentValue(section, "fixStr"); //输出结果前后缀文本
+                if (!string.IsNullOrWhiteSpace(configuredFixStr)) { fixStr = configuredFixStr.Trim(); }
+                string configuredFixStr2 = iniFileHelper.ContentValue(section, "fixStr2"); //加密后缀
+                if (!string.IsNullOrWhiteSpace(configuredFixStr2)) { fixStr2 = configuredFixStr2.Trim(); }
                 fixType = ToIntOrDefault(FixType,0);  //默认值0，不改变原有逻辑
                 signBuiltInPath = iniFileHelper.ContentValue(section, "signBuiltInPath");    //内置证书路径
                 signBuiltInPass = iniFileHelper.ContentValue(section, "signBuiltInPass");    //内置证书密码
@@ -1460,107 +1459,42 @@ namespace PDFQFZ
         /// <param name="pdfPath"></param>
         public void PDFToiPDF(string pdfPath)
         {
-            ////方法1,测试Aspose.pdf转位图在这没有成功，demo测试可以，可能和qfz文件经过iTextSharp或者O2S.Components.PDFRender4NET处理过有关，采用直接读取文件
-            //Bitmap[] bitmaps = PDFConverter.ConvertToBitmapArray(pdfPath);//转换的清晰度高，文件大
-            //PDFConverter.ConvertBitmapArrayToPDF(bitmaps, pdfPath,true,true,0.0,0.0,0.0,0.0);
-            //PdfConverter.ConvertPDFToPDF(pdfPath, pdfPath, true, true, 0.0, 0.0, 0.0, 0.0);
-            //上面3个函数调用都可以
-
-            //原版方法2
-            PDFFile pdfFile = PDFFile.Open(pdfPath);
-            Bitmap[] bitmaps = new Bitmap[pdfFile.PageCount];
             int dpi = 300; //原版方法最好默认300
-            for (int i = 0; i < pdfFile.PageCount; i++)
-            {
-                Bitmap pageImage = pdfFile.GetPageImage(i, dpi);      //这个地方转换导致原有水印和背景透明度丢失，下面的方法解决
-                bitmaps[i] = pageImage;
-                //pageImage.Save(AppDomain.CurrentDomain.BaseDirectory + @"Image1" + i + ".png", System.Drawing.Imaging.ImageFormat.Png);
-                //pageImage.Save(imageOutputPath + imageName + i.ToString() + "." + imageFormat.ToString(), imageFormat);
-            }
-            pdfFile.Dispose();
-
-            //方法3测试转换为图片
-            //PDFConverter PDFI = new PDFConverter(); //过滤了其他文件和含_已盖章的文件，是转换的原始文件，没有盖章前的，也可以输出盖过的文件，这是验证测试用
-            //PDFI.ConvertPDFsToImages(pathDir, textBCpath.Text, System.Drawing.Imaging.ImageFormat.Png, 300, 1, pdfFile.PageCount);//后3个参数时dpi 起始页和最后页
-
-            //PdfReader reader = new PdfReader(pdfPath);
-            //int pageCount = reader.NumberOfPages;
-
-            //for (int i = 1; i <= pageCount; i++)
-            //{
-            //    iTextSharp.text.Rectangle pageSize = reader.GetPageSize(i);
-            //    float width = pageSize.Width;
-            //    float height = pageSize.Height;
-            //}
-            //reader.Close();
-            //reader.Dispose();
-
-            //获取屏幕参数
-            //int screenWidth = 1920;
-            //int screenHeight = 1080;
-            //Screen screen = Screen.PrimaryScreen;
-            //screenWidth = screen.Bounds.Width; //1707
-            //screenHeight = screen.Bounds.Height;//1067
-            //screenWidth = (int)(screenWidth * ScaleX);//2560  ScaleX1.5左右
-            //screenHeight = (int)(screenHeight * ScaleY);//1600
-
-            //int dpiXX, dpiYY;
-            //SystemDpi(out dpiXX, out dpiYY); //96
-            //int dpi = dpiXX;        //300,获取当前分辨率，盖章后，不会出现两侧距离过大或过小，
-            //double scale = Scaling(dpiXX); // 缩放比例96返回1
-
-            #region 方法4，转换的文件小，清晰度差一点，可以通过分辨率设置大小及清晰度
-            //var pdf = PdfiumViewer.PdfDocument.Load(pdfPath); // 读取pdf
-            //var pdfPage = pdf.PageCount; // pdf页码
-            //var pdfSize = pdf.PageSizes;
-
-
-            //if (startPageNum <= 0) { startPageNum = 1; }
-            //if (endPageNum > pdf.PageCount) { endPageNum = pdf.PageCount; }
-            //if (startPageNum > endPageNum) // 开始>结束
-            //{
-            //    int tempPageNum = startPageNum;
-            //    startPageNum = endPageNum;
-            //    endPageNum = startPageNum;
-            //}
-
-
-            // bitmaps = new Bitmap[pdfPage];
-            //for (int i = 0; i < pdfPage; i++)
-            //{
-            //    System.Drawing.Size size = new System.Drawing.Size();
-            //    size.Width = (int)pdfSize[i].Width;
-            //    size.Height = (int)pdfSize[i].Height;
-
-            //    // 计算适合的图像大小和分辨率
-            //    int targetWidth = (int)(size.Width * 2 * scale); // 保持原始宽度,转换成图片的清晰度主要和这个地方乘以倍数有关,也就是分辨率
-            //    int targetHeight = (int)(size.Height * 2 * scale); // 保持原始高度，一定要同比例放大，也就是倍数一样，3倍效果好，300多k文件盖后会变成1m多
-
-            //    // 计算适合的水平和垂直分辨率
-            //    float dpiX = dpi;
-            //    float dpiY = dpi;
-
-            //    var image = pdf.Render(i, targetWidth, targetHeight, (int)dpiX, (int)dpiY, PdfiumViewer.PdfRenderFlags.Annotations);
-            //    bitmaps[i] = new Bitmap(image);
-            //}
-            //pdf.Dispose();
-            #endregion
-
             float bl = 72f / dpi; // 为了尽量保证转换的清晰度，这里需要把电脑的DPI缩放到PDF的DPI,在计算bl时，使用了固定值72，PDF中，1英寸等于72个点（point）
-
-            string tmpPdf = pdfPath;
-
-            if (qmType != 0)        //0 不使用数字签名，这表示使用数字签名时
+            Bitmap[] bitmaps = null;
+            try
             {
-                tmpPdf = System.IO.Path.GetTempPath() + "PDFQFZ_tmp.pdf";
+                using (IPdfDocumentRenderer pdfRenderer = PdfiumDocumentRenderer.Open(pdfPath))
+                {
+                    bitmaps = new Bitmap[pdfRenderer.PageCount];
+                    for (int i = 0; i < pdfRenderer.PageCount; i++)
+                    {
+                        bitmaps[i] = pdfRenderer.RenderPage(i, dpi);
+                    }
+                }
+
+                string tmpPdf = pdfPath;
+                if (qmType != 0)        //0 不使用数字签名，这表示使用数字签名时
+                {
+                    tmpPdf = System.IO.Path.GetTempPath() + "PDFQFZ_tmp.pdf";
+                }
+
+                ImageToPDF(bitmaps, bl, tmpPdf);      //转换位图到图片
+
+                if (qmType != 0)
+                {
+                    SignaturePDF(tmpPdf, pdfPath, cert);
+                }
             }
-
-            //PDFConverter.ImageToPDF2(bitmaps, bl, tmpPdf);
-            ImageToPDF(bitmaps, bl, tmpPdf);      //转换位图到图片
-
-            if (qmType != 0)
+            finally
             {
-                SignaturePDF(tmpPdf, pdfPath, cert);
+                if (bitmaps != null)
+                {
+                    foreach (Bitmap bitmap in bitmaps)
+                    {
+                        bitmap?.Dispose();
+                    }
+                }
             }
         }
         //建一个全局的目录变量
@@ -1909,13 +1843,13 @@ namespace PDFQFZ
             ResetPreviewForInputModeChange();
             if (comboType.SelectedIndex == 0)
             {
-                label1.Text = "请选择需要盖章的PDF文件所在目录";
+                label1.Text = "请选择或拖入需要盖章的PDF文件所在目录";
                 label2.Text = "请选择PDF盖章后所保存的目录";
                 isSaveSources.Enabled = true;
             }
             else
             {
-                label1.Text = "请选择需要盖章的PDF文件(支持多选)";
+                label1.Text = "请选择或拖入需要盖章的PDF文件（支持多选）";
                 label2.Text = "请选择PDF盖章后所保存的目录";
                 isSaveSources.Enabled = false;
 
@@ -2192,7 +2126,6 @@ namespace PDFQFZ
 
             cts = new CancellationTokenSource();
             dtPages.Rows.Clear();
-            stampPlacements.Clear();
             specifiedPageRange = null;
             specifiedRangeFirstClickPending = false;
             activeSpecifiedBatchId = 0;
@@ -2201,11 +2134,11 @@ namespace PDFQFZ
 
             if (!string.IsNullOrWhiteSpace(previewPath))
             {
-                previewPdfFile = PDFFile.Open(previewPath);
+                previewPdfRenderer = PdfiumDocumentRenderer.Open(previewPath);
                 imgStartPage = 1;
-                imgPageCount = previewPdfFile.PageCount;
+                imgPageCount = previewPdfRenderer.PageCount;
                 viewPdfimgs = new Bitmap[imgPageCount];
-                previewPageCache = new PageCache<Bitmap>(pageIndex => previewPdfFile.GetPageImage(pageIndex, 72));
+                previewPageCache = new PageCache<Bitmap>(pageIndex => previewPdfRenderer.RenderPage(pageIndex, 72));
 
                 for (int i = 1; i <= imgPageCount; i++)
                 {
@@ -2214,6 +2147,7 @@ namespace PDFQFZ
 
                 viewPdfimgs[0] = await GetOrLoadPreviewPageAsync(0);
                 await viewPDFPage();
+                UpdatePlacementOperationHint();
                 return;
             }
 
@@ -2263,10 +2197,10 @@ namespace PDFQFZ
                 previewPageCache = null;
             }
 
-            if (previewPdfFile != null)
+            if (previewPdfRenderer != null)
             {
-                previewPdfFile.Dispose();
-                previewPdfFile = null;
+                previewPdfRenderer.Dispose();
+                previewPdfRenderer = null;
             }
 
             ClearTransparentStampCache();
@@ -2784,7 +2718,7 @@ namespace PDFQFZ
         }
         private void BeginSpecifiedPageStampMode()
         {
-            if (previewPdfFile == null || string.IsNullOrWhiteSpace(previewPath) || imgPageCount < 1)
+            if (previewPdfRenderer == null || string.IsNullOrWhiteSpace(previewPath) || imgPageCount < 1)
             {
                 SetOperationHint("请先加载 PDF，再设置指定范围。", true);
                 MessageBox.Show("请先加载 PDF，再设置指定范围。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);

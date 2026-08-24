@@ -8,6 +8,8 @@ namespace PDFQFZ.Library
 {
     public static class OutputFileNamingPolicy
     {
+        private const string DefaultMarker = "已盖章";
+
         public static string GetNextOutputPath(
             string destinationDirectory,
             string sourceFilePath,
@@ -28,6 +30,7 @@ namespace PDFQFZ.Library
             bool markerBeforeSource,
             IEnumerable<string> existingFileNames)
         {
+            marker = string.IsNullOrWhiteSpace(marker) ? DefaultMarker : marker.Trim();
             string sourceName = Path.GetFileNameWithoutExtension(sourceFilePath);
             string extension = Path.GetExtension(sourceFilePath);
             if (string.IsNullOrEmpty(extension))

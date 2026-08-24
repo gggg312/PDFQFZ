@@ -22,6 +22,18 @@ public sealed class StampPlacementCollectionTests
     }
 
     [Fact]
+    public void PlacementsForDifferentDocumentsRemainIndependent()
+    {
+        var placements = new StampPlacementCollection();
+        placements.Add("first.pdf", 1, 0.1f, 0.2f, "stamp.png", 40, 60, 0, 20, true, true);
+        placements.Add("second.pdf", 2, 0.6f, 0.7f, "stamp.png", 40, 60, 0, 20, true, true);
+
+        Assert.Single(placements.ForPage("first.pdf", 1));
+        Assert.Single(placements.ForPage("second.pdf", 2));
+        Assert.Equal(2, placements.Count);
+    }
+
+    [Fact]
     public void Remove_DeletesOnlyTheRequestedPlacement()
     {
         var placements = new StampPlacementCollection();

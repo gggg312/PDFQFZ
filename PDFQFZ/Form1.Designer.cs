@@ -167,7 +167,7 @@ namespace PDFQFZ
             this.label1.Name = "label1";
             this.label1.Size = new System.Drawing.Size(242, 20);
             this.label1.TabIndex = 7;
-            this.label1.Text = "请选择需要盖章的PDF文件(支持多选)";
+            this.label1.Text = "请选择或拖入需要盖章的PDF文件（支持多选）";
             // 
             // label2
             // 

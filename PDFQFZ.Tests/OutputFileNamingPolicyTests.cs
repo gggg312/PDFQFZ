@@ -13,6 +13,17 @@ public class OutputFileNamingPolicyTests
         Assert.Equal("1_已盖章V1.pdf", result);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void MissingMarkerFallsBackToStampedMarker(string marker)
+    {
+        string result = OutputFileNamingPolicy.GetNextFileName("1.pdf", marker, false, Array.Empty<string>());
+
+        Assert.Equal("1_已盖章V1.pdf", result);
+    }
+
     [Fact]
     public void ExistingVersionsUseHighestVersionPlusOne()
     {

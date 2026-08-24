@@ -1,11 +1,12 @@
-# Local build dependency
+# PDF rendering dependencies
 
-`PDFQFZ` currently requires `O2S.Components.PDFRender4NET.dll` to render PDF previews.
+PDFQFZ no longer requires a manually supplied PDF rendering DLL.
 
-The DLL is not included in this repository. To build the application locally, obtain a legally licensed copy and place it at:
+Visual Studio or MSBuild restores these open-source packages from NuGet:
 
-```text
-Dependencies/O2S.Components.PDFRender4NET.dll
-```
+- `PdfiumViewer.Updated 2.14.5`
+- `bblanchon.PDFium.Win32 153.0.8009`
 
-The project file references this relative path. Do not commit the DLL to the repository.
+The project embeds the Windows x86 and x64 native PDFium libraries into the final executable through Costura. Do not commit restored NuGet DLLs or local copies of `pdfium.dll` to this directory.
+
+See [`../THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md) for license and redistribution information.

@@ -2,7 +2,7 @@
 
 ## 与原作者的关系
 
-本项目基于 [flytkgl/PDFQFZ](https://github.com/flytkgl/PDFQFZ) 的 `v1.33` 源码进行个人使用和界面、功能优化。感谢原作者开源并持续维护这个工具。本仓库保留上游项目链接和原有作者信息，与原仓库相关的问题和更新仍应参考上游仓库。
+本项目基于 [flytkgl/PDFQFZ](https://github.com/flytkgl/PDFQFZ) 的 `v1.33` 源码进行个人使用和界面、功能优化。感谢原作者开源并持续维护这个工具。原作者在 [Issue #107](https://github.com/flytkgl/PDFQFZ/issues/107) 中公开说明允许修改，并希望后续保留原作者署名；本仓库继续保留上游项目链接、原有作者信息和致谢说明。
 
 ## 本版改动大纲
 
@@ -32,6 +32,8 @@
 ### 3. 保存和输出
 
 - 输出文件沿用现有命名规则，并根据同一源文件已存在的输出文件自动使用 `V1`、`V2`、`V3` 等版本号，不覆盖旧结果。
+- 目录模式下切换预览文件不会清空其他文件已添加的印章；最终点击“盖章”时按每个源文件分别输出全部已记录印章。
+- 输出标记为空或缺失时自动使用 `已盖章`，默认文件名为 `源文件名_已盖章V1.pdf`。
 - 操作提示会显示原文件名和输出文件名，例如：`1.pdf` 输出为 `1_已盖章V1.pdf`。
 - 默认首次启动为：文件模式、不加骑缝章、不盖页面章、叠加模式。
 
@@ -58,8 +60,17 @@
 ## 编译和依赖
 
 - 主要项目为 .NET Framework 4.7.2 WinForms 项目，可使用 Visual Studio 2022 打开 `PDFQFZ.sln` 。
-- 测试项目使用 .NET 9 Windows 测试工程，当前自动测试为 `56/56` 通过。
-- PDF 预览需要本地提供 `Dependencies/O2S.Components.PDFRender4NET.dll`，该文件不包含在仓库中；具体放置方式参见 [`Dependencies/README.md`](./Dependencies/README.md) 。
+- 测试项目使用 .NET 9 Windows 测试工程，当前自动测试为 `65/65` 通过。
+- PDF 预览和合并模式使用开源的 `PdfiumViewer.Updated 2.14.5` 与 `bblanchon.PDFium.Win32 153.0.8009`，通过 NuGet 自动还原，不需要手动提供 PDF 渲染 DLL。
+- x86 和 x64 PDFium 原生库由 Costura 嵌入最终 EXE，Release 交付仍为单文件。
+- 第三方组件、许可证和发布注意事项见 [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md) 。
+
+## 授权与发布说明
+
+- 当前版本已移除来源和再分发授权不明确的 `O2S.Components.PDFRender4NET.dll`，源码和新构建均不再依赖该文件。
+- 原作者在 Issue 中的公开回复作为允许修改和保留署名的依据，但上游仓库目前仍未提供一份包含完整许可条款的根目录 `LICENSE`。
+- 本项目继续使用 AGPL 许可的 iTextSharp 5.5.13.1。公开发布 EXE 时应同时公开与该 EXE 对应的完整源码和修改内容，并保留第三方许可说明。
+- 本仓库不擅自替原作者设定整个项目的正式许可证，也不宣称仅替换 PDF 渲染组件即可消除所有许可判断事项。
 
 ## 版本与下载
 
@@ -68,6 +79,6 @@
 - 基础版本：原作者 `PDFQFZ v1.33`
 - 源码分支：`gg-v1.0`
 
-可执行文件将随 GitHub Release 发布，发布页面会提供文件名和 SHA-256 校验值。
+本轮不上传 GitHub Release。人工验收通过后，用户可自行决定是否发布；发布时应同时提供对应源码、第三方 notices 和 SHA-256 校验值。
 
 ![PDFQFZ 原项目界面](./pdfqfz.jpg)
