@@ -73,7 +73,6 @@
 
 - 主要项目为 .NET Framework 4.7.2 WinForms 项目，可使用 Visual Studio 2022 打开 `PDFQFZ.sln` 。
 - 测试项目使用 .NET 9 Windows 测试工程，当前自动测试为 `56/56` 通过。
-- PDF 预览需要本地提供 `Dependencies/O2S.Components.PDFRender4NET.dll`，该文件不包含在仓库中；具体放置方式参见 [`Dependencies/README.md`](./Dependencies/README.md) 。
 
 ## 版本与下载
 
