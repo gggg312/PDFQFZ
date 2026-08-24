@@ -192,6 +192,8 @@ ClientBin/
 *.jfm
 *.pfx
 *.publishsettings
+*.exe
+*.dll
 node_modules/
 orleans.codegen.cs
 

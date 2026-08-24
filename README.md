@@ -72,7 +72,8 @@
 
 - 主要项目为 .NET Framework 4.7.2 WinForms 项目，可使用 Visual Studio 2022 打开 `PDFQFZ.sln`。
 - 测试项目使用 .NET 9 Windows 测试工程，当前自动测试为 `65/65` 通过。
-- 本次版本使用开源PDFium作为渲染组件。
+- 本次版本使用开源 PDFium 作为渲染组件。
+- 项目整体许可现状与第三方组件许可分别见 [`LICENSING.md`](./LICENSING.md) 和 [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md)。
 
 ## 版本与下载
 
@@ -82,4 +83,3 @@
 - 源码分支：`gg-v1.0`
 
 可执行文件将随 GitHub Release 发布，发布页面会提供文件名和 SHA-256 校验值。
-

@@ -9,6 +9,7 @@
     <RootNamespace>PDFQFZ</RootNamespace>
     <AssemblyName>$(RootNamespace)</AssemblyName>
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <RuntimeIdentifiers>win;win-x86;win-x64</RuntimeIdentifiers>
     <FileAlignment>512</FileAlignment>
     <TargetFrameworkProfile />
     <IsWebBootstrapper>false</IsWebBootstrapper>
@@ -156,12 +157,11 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Costura.Fody">
-      <Version>5.7.0</Version>
-      <IncludeAssets>runtime;compile;build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <Version>6.2.0</Version>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="iTextSharp">
-      <Version>5.5.13.1</Version>
+      <Version>5.5.13.6</Version>
     </PackageReference>
     <PackageReference Include="PdfiumViewer.Updated">
       <Version>2.14.5</Version>
@@ -173,16 +173,48 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="$(Pkgbblanchon_PDFium_Win32)\runtimes\win-x86\native\pdfium.dll">
-      <Link>costuraX86\pdfium.dll</Link>
-      <LogicalName>costura32.pdfium.dll</LogicalName>
+      <Link>costura-win-x86\pdfium.dll</Link>
+      <LogicalName>costura_win_x86.pdfium.dll</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="$(Pkgbblanchon_PDFium_Win32)\runtimes\win-x64\native\pdfium.dll">
-      <Link>costuraX64\pdfium.dll</Link>
-      <LogicalName>costura64.pdfium.dll</LogicalName>
+      <Link>costura-win-x64\pdfium.dll</Link>
+      <LogicalName>costura_win_x64.pdfium.dll</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="..\THIRD-PARTY-NOTICES.md">
       <Link>THIRD-PARTY-NOTICES.md</Link>
       <LogicalName>PDFQFZ.THIRD-PARTY-NOTICES.md</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\LICENSES\iTextSharp-LICENSE.md">
+      <Link>LICENSES\iTextSharp-LICENSE.md</Link>
+      <LogicalName>PDFQFZ.LICENSES.iTextSharp-LICENSE.md</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\LICENSES\iTextSharp-NOTICE.txt">
+      <Link>LICENSES\iTextSharp-NOTICE.txt</Link>
+      <LogicalName>PDFQFZ.LICENSES.iTextSharp-NOTICE.txt</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\LICENSES\BouncyCastle-LICENSE.md">
+      <Link>LICENSES\BouncyCastle-LICENSE.md</Link>
+      <LogicalName>PDFQFZ.LICENSES.BouncyCastle-LICENSE.md</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\LICENSES\GNU-AGPL-3.0.md">
+      <Link>LICENSES\GNU-AGPL-3.0.md</Link>
+      <LogicalName>PDFQFZ.LICENSES.GNU-AGPL-3.0.md</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\LICENSES\Apache-2.0.txt">
+      <Link>LICENSES\Apache-2.0.txt</Link>
+      <LogicalName>PDFQFZ.LICENSES.Apache-2.0.txt</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\LICENSES\bblanchon-pdfium-binaries-LICENSE.txt">
+      <Link>LICENSES\bblanchon-pdfium-binaries-LICENSE.txt</Link>
+      <LogicalName>PDFQFZ.LICENSES.bblanchon-pdfium-binaries-LICENSE.txt</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\LICENSES\Costura-LICENSE.txt">
+      <Link>LICENSES\Costura-LICENSE.txt</Link>
+      <LogicalName>PDFQFZ.LICENSES.Costura-LICENSE.txt</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\LICENSES\Fody-LICENSE.txt">
+      <Link>LICENSES\Fody-LICENSE.txt</Link>
+      <LogicalName>PDFQFZ.LICENSES.Fody-LICENSE.txt</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
