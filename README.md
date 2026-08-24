@@ -70,8 +70,10 @@
 
 ## 编译和依赖
 
-- 主要项目为 .NET Framework 4.7.2 WinForms 项目，可使用 Visual Studio 2022 打开 `PDFQFZ.sln` 。
-- 测试项目使用 .NET 9 Windows 测试工程，当前自动测试为 `56/56` 通过。
+- 主要项目为 .NET Framework 4.7.2 WinForms 项目，可使用 Visual Studio 2022 打开 `PDFQFZ.sln`。
+- 测试项目使用 .NET 9 Windows 测试工程，当前自动测试为 `65/65` 通过。
+- 本次版本使用开源PDFium作为渲染组件。
+- PDF 预览和合并模式使用开源的 PdfiumViewer 与 PDFium，通过 NuGet 自动还原。
 
 ## 版本与下载
 
