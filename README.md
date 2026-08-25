@@ -23,7 +23,7 @@
 2. 页面盖章仅保留“手动点击盖章”和“指定范围页盖章”两种方式，默认支持多章连盖。
 3. 支持同页、跨页连续添加多个印章，并可双击删除指定印章。
 4. 新增指定范围批量盖章，支持页码输入、范围校验和指定位置批量生成。
-5. 优化页码跳转、操作提示、白色背景去除和输出文件版本号。
+5. 优化目录模式、页码跳转、操作提示、输出文件名递增版本号。
 
 ## 详细改动说明
 
@@ -72,7 +72,7 @@
 
 - 主要项目为 .NET Framework 4.7.2 WinForms 项目，可使用 Visual Studio 2022 打开 `PDFQFZ.sln`。
 - 测试项目使用 .NET 9 Windows 测试工程，当前自动测试为 `65/65` 通过。
-- 已移除原外部 O2 PDF 渲染 DLL，改用开源 PDFium；项目通过 NuGet 还原 `PdfiumViewer.Updated 2.14.5` 和 `bblanchon.PDFium.Win32 153.0.8009`。
+- 改用开源 PDFium 进行PDF渲染；项目通过 NuGet 还原 `PdfiumViewer.Updated 2.14.5` 和 `bblanchon.PDFium.Win32 153.0.8009`。
 - x86 与 x64 PDFium 原生组件均嵌入单 EXE，不需要在程序旁另行放置渲染 DLL。
 - 项目整体许可现状与第三方组件许可分别见 [`LICENSING.md`](./LICENSING.md) 和 [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md)。
 
