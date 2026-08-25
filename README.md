@@ -7,13 +7,13 @@
 
 ## 前言
 
-日常工作中我经常使用本工具，最常使用页面盖章相关功能。在长期使用过程中，也积累了不少实际使用痛点，因此基于个人实际使用场景做了针对性优化：：
+日常工作中我经常使用本工具，最常使用页面盖章相关功能。在长期使用过程中，也积累了不少实际使用痛点，因此基于个人实际使用场景做了针对性优化：
 
--重构优化原有页面盖章的整套交互逻辑；
+- 重构优化原有页面盖章的整套交互逻辑；
 
--原版 PDF 预览区域尺寸偏小，查看文档、定位印章位置较为吃力，因此放大程序窗口与预览视图，提升预览可视效果；
+- 原版 PDF 预览区域尺寸偏小，查看文档、定位印章位置较为吃力，因此放大程序窗口与预览视图，提升预览可视效果；
 
--窗口放大后原版 UI 布局不再适配，重新调整整体界面排布；同时新增操作提示区域，降低上手成本；
+- 窗口放大后原版 UI 布局不再适配，重新调整整体界面排布；同时新增操作提示区域，降低上手成本。
 
 <img width="1502" height="932" alt="image" src="https://github.com/user-attachments/assets/b1ac601d-98f4-464f-8b64-efea988951e5" />
 
@@ -72,7 +72,8 @@
 
 - 主要项目为 .NET Framework 4.7.2 WinForms 项目，可使用 Visual Studio 2022 打开 `PDFQFZ.sln`。
 - 测试项目使用 .NET 9 Windows 测试工程，当前自动测试为 `65/65` 通过。
-- 本次版本使用开源 PDFium 作为渲染组件。
+- 已移除原外部 O2 PDF 渲染 DLL，改用开源 PDFium；项目通过 NuGet 还原 `PdfiumViewer.Updated 2.14.5` 和 `bblanchon.PDFium.Win32 153.0.8009`。
+- x86 与 x64 PDFium 原生组件均嵌入单 EXE，不需要在程序旁另行放置渲染 DLL。
 - 项目整体许可现状与第三方组件许可分别见 [`LICENSING.md`](./LICENSING.md) 和 [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md)。
 
 ## 版本与下载
@@ -82,4 +83,6 @@
 - 基础版本：原作者 `PDFQFZ v1.33`
 - 源码分支：`gg-v1.0`
 
-可执行文件将随 GitHub Release 发布，发布页面会提供文件名和 SHA-256 校验值。
+- 最新发布：[V1.0 GG优化版（基于 PDFQFZ v1.33）](https://github.com/gggg312/PDFQFZ/releases/tag/gg-v1.0-pdfium)
+- 下载文件：[PDFQFZ_V1.0_GG_optimized_PDFium.exe](https://github.com/gggg312/PDFQFZ/releases/download/gg-v1.0-pdfium/PDFQFZ_V1.0_GG_optimized_PDFium.exe)
+- SHA-256：`B2A3F9DB95DB917C1E040FB03BE362056E7AF278E365092BBCEC529A877EEB82`
