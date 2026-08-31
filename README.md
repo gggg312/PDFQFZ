@@ -1,4 +1,4 @@
-# PDFQFZ V1.0 GG优化版
+# PDFQFZ GG优化版
 
 ## 与原作者的关系
 
