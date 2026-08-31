@@ -37,6 +37,37 @@ namespace PDFQFZ.Library
             error = string.Empty;
             return true;
         }
+
+        public static int MoveByWheel(int currentPage, int pageCount, int wheelDelta)
+        {
+            if (pageCount < 1)
+            {
+                return 0;
+            }
+
+            int page = Math.Max(1, Math.Min(pageCount, currentPage));
+            if (wheelDelta > 0)
+            {
+                return Math.Max(1, page - 1);
+            }
+
+            if (wheelDelta < 0)
+            {
+                return Math.Min(pageCount, page + 1);
+            }
+
+            return page;
+        }
+
+        public static int NormalizeScrollValue(int value, int pageCount)
+        {
+            if (pageCount < 1)
+            {
+                return 1;
+            }
+
+            return Math.Max(1, Math.Min(pageCount, value));
+        }
     }
 
     internal static class WhiteBackgroundOptionPolicy

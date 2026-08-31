@@ -98,6 +98,7 @@
     <Compile Include="Library\PageCache.cs" />
     <Compile Include="Library\IPdfDocumentRenderer.cs" />
     <Compile Include="Library\PdfiumDocumentRenderer.cs" />
+    <Compile Include="Library\PreviewPdfPreparation.cs" />
     <Compile Include="Library\PdfRenderSizeCalculator.cs" />
     <Compile Include="Library\PageRange.cs" />
     <Compile Include="Library\PageRangeDialog.cs" />

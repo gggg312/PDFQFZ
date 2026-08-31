@@ -37,6 +37,34 @@ public sealed class UiInteractionPoliciesTests
         Assert.NotEmpty(error);
     }
 
+    [Theory]
+    [InlineData(1, 14, 120, 1)]
+    [InlineData(5, 14, 120, 4)]
+    [InlineData(5, 14, -120, 6)]
+    [InlineData(14, 14, -120, 14)]
+    [InlineData(5, 14, 0, 5)]
+    public void PageNavigationPolicy_MovesOnePagePerWheelStep(
+        int currentPage,
+        int pageCount,
+        int wheelDelta,
+        int expected)
+    {
+        Assert.Equal(expected, PageNavigationPolicy.MoveByWheel(currentPage, pageCount, wheelDelta));
+    }
+
+    [Theory]
+    [InlineData(-1, 14, 1)]
+    [InlineData(1, 14, 1)]
+    [InlineData(20, 14, 14)]
+    [InlineData(6, 0, 1)]
+    public void PageNavigationPolicy_NormalizesScrollValueToPageRange(
+        int value,
+        int pageCount,
+        int expected)
+    {
+        Assert.Equal(expected, PageNavigationPolicy.NormalizeScrollValue(value, pageCount));
+    }
+
     [Fact]
     public void WhiteBackgroundOptionPolicy_EnablesToleranceOnlyWhenSelected()
     {

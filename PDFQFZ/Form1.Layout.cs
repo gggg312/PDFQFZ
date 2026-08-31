@@ -16,12 +16,15 @@ namespace PDFQFZ
         private readonly Dictionary<RadioButton, int> outputModeRadios = new Dictionary<RadioButton, int>();
         private SplitContainer mainSplit;
         private Panel previewStage;
+        private VScrollBar previewPageScrollBar;
         private TextBox currentPageInput;
         private Label totalPageLabel;
         private Label operationHint;
         private Label previewPlaceholder;
         private Button specifiedPageButton;
         private bool synchronizingModeControls;
+        private bool synchronizingPageScrollBar;
+        private int previewWheelDeltaRemainder;
         private bool logContainsOnlyHelp = true;
 
         private const string InitialHelpText =
@@ -38,7 +41,7 @@ namespace PDFQFZ
         {
             SuspendLayout();
 
-            Text = "PDF盖页面章与骑缝章工具 （V1.0  GG优化版）";
+            Text = "PDF盖页面章与骑缝章工具 （V1.1  GG优化版）";
             FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = true;
             StartPosition = FormStartPosition.CenterScreen;
@@ -72,6 +75,7 @@ namespace PDFQFZ
 
             Resize += Form1_AdaptiveResize;
             Shown += Form1_InitialLayout;
+            MouseWheel += PreviewStage_MouseWheel;
             ResumeLayout(true);
         }
 
@@ -377,12 +381,24 @@ namespace PDFQFZ
             };
             layout.Controls.Add(operationHint, 0, 1);
 
+            TableLayoutPanel previewViewport = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
+            previewViewport.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            previewViewport.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 18F));
+
             previewStage = new Panel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(218, 220, 222),
                 BorderStyle = BorderStyle.FixedSingle,
-                Margin = new Padding(0)
+                Margin = new Padding(0),
+                TabStop = true
             };
             previewStage.Controls.Add(pictureBox1);
             pictureBox1.SizeMode = PictureBoxSizeMode.Zoom;
@@ -398,7 +414,23 @@ namespace PDFQFZ
             pictureBox1.Controls.Add(previewPlaceholder);
             previewPlaceholder.BringToFront();
             previewStage.Resize += PreviewStage_Resize;
-            layout.Controls.Add(previewStage, 0, 2);
+            previewViewport.Controls.Add(previewStage, 0, 0);
+
+            previewPageScrollBar = new VScrollBar
+            {
+                Dock = DockStyle.Fill,
+                Minimum = 1,
+                Maximum = 1,
+                LargeChange = 1,
+                SmallChange = 1,
+                Value = 1,
+                TabStop = true,
+                Enabled = false,
+                Margin = new Padding(2, 0, 0, 0)
+            };
+            previewPageScrollBar.ValueChanged += PreviewPageScrollBar_ValueChanged;
+            previewViewport.Controls.Add(previewPageScrollBar, 1, 0);
+            layout.Controls.Add(previewViewport, 0, 2);
         }
 
         private void RecreatePreviewToolbarControls()
@@ -744,6 +776,58 @@ namespace PDFQFZ
             SetOperationHint("已跳转到第 " + page + " 页。", false);
         }
 
+        private void PreviewStage_MouseWheel(object sender, MouseEventArgs e)
+        {
+            if (previewStage == null ||
+                !previewStage.RectangleToScreen(previewStage.ClientRectangle).Contains(Control.MousePosition) ||
+                viewPdfimgs == null ||
+                imgPageCount < 1 ||
+                e.Delta == 0)
+            {
+                return;
+            }
+
+            previewWheelDeltaRemainder += e.Delta;
+            int threshold = SystemInformation.MouseWheelScrollDelta;
+            if (Math.Abs(previewWheelDeltaRemainder) < threshold)
+            {
+                return;
+            }
+
+            int wheelStep = Math.Sign(previewWheelDeltaRemainder) * threshold;
+            previewWheelDeltaRemainder -= wheelStep;
+            int targetPage = PageNavigationPolicy.MoveByWheel(imgStartPage, imgPageCount, wheelStep);
+            if (targetPage != imgStartPage)
+            {
+                NavigateToPreviewPage(targetPage);
+            }
+        }
+
+        private void PreviewPageScrollBar_ValueChanged(object sender, EventArgs e)
+        {
+            if (synchronizingPageScrollBar || viewPdfimgs == null || imgPageCount < 1)
+            {
+                return;
+            }
+
+            int targetPage = PageNavigationPolicy.NormalizeScrollValue(previewPageScrollBar.Value, imgPageCount);
+            if (targetPage != imgStartPage)
+            {
+                NavigateToPreviewPage(targetPage);
+            }
+        }
+
+        private void NavigateToPreviewPage(int page)
+        {
+            if (!PageNavigationPolicy.TryParse(page.ToString(), imgPageCount, out int targetPage, out _))
+            {
+                return;
+            }
+
+            imgStartPage = targetPage;
+            _ = viewPDFPage();
+        }
+
         private void SetOperationHint(string text, bool isError = false)
         {
             if (operationHint == null)
@@ -878,6 +962,30 @@ namespace PDFQFZ
                 Math.Max(0, (previewStage.ClientSize.Width - size.Width) / 2),
                 Math.Max(0, (previewStage.ClientSize.Height - size.Height) / 2));
             RefreshPreviewOverlays();
+        }
+
+        private void UpdatePreviewPageScrollBar()
+        {
+            if (previewPageScrollBar == null)
+            {
+                return;
+            }
+
+            synchronizingPageScrollBar = true;
+            try
+            {
+                int pageCount = Math.Max(1, imgPageCount);
+                previewPageScrollBar.Minimum = 1;
+                previewPageScrollBar.Maximum = pageCount;
+                previewPageScrollBar.LargeChange = 1;
+                previewPageScrollBar.SmallChange = 1;
+                previewPageScrollBar.Enabled = imgPageCount > 1;
+                previewPageScrollBar.Value = PageNavigationPolicy.NormalizeScrollValue(imgStartPage, pageCount);
+            }
+            finally
+            {
+                synchronizingPageScrollBar = false;
+            }
         }
     }
 }

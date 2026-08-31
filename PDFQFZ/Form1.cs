@@ -84,6 +84,7 @@ namespace PDFQFZ
         Bitmap[] viewPdfimgs = null;         //预览的pdf列表， viewPdfimgs[imgStartPage-1]表示当前在预览的图片
         PageCache<Bitmap> previewPageCache = null;
         IPdfDocumentRenderer previewPdfRenderer = null;
+        string previewRenderPath = "";
         Bitmap cachedTransparentStamp = null;
         string cachedTransparentStampKey = "";
         readonly object transparentStampCacheSync = new object();
@@ -1462,9 +1463,13 @@ namespace PDFQFZ
             int dpi = 300; //原版方法最好默认300
             float bl = 72f / dpi; // 为了尽量保证转换的清晰度，这里需要把电脑的DPI缩放到PDF的DPI,在计算bl时，使用了固定值72，PDF中，1英寸等于72个点（point）
             Bitmap[] bitmaps = null;
+            string renderPath = pdfPath;
             try
             {
-                using (IPdfDocumentRenderer pdfRenderer = PdfiumDocumentRenderer.Open(pdfPath))
+                // PDFium does not paint some Acrobat /Stamp annotations. Flatten them before
+                // merge-mode rasterization so existing stamps become part of the output bitmap.
+                renderPath = PreviewPdfPreparation.CreateAnnotationFlattenedCopy(pdfPath);
+                using (IPdfDocumentRenderer pdfRenderer = PdfiumDocumentRenderer.Open(renderPath))
                 {
                     bitmaps = new Bitmap[pdfRenderer.PageCount];
                     for (int i = 0; i < pdfRenderer.PageCount; i++)
@@ -1494,6 +1499,11 @@ namespace PDFQFZ
                     {
                         bitmap?.Dispose();
                     }
+                }
+
+                if (!string.Equals(renderPath, pdfPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    PreviewPdfPreparation.TryDelete(renderPath);
                 }
             }
         }
@@ -1880,6 +1890,7 @@ namespace PDFQFZ
 
             pictureBox1.Image = pageImage;
             SetPreviewPlaceholderVisible(false);
+            UpdatePreviewPageScrollBar();
             labelPage.Text = imgStartPage + "/" + imgPageCount;
             if (currentPageInput != null)
             {
@@ -2134,7 +2145,8 @@ namespace PDFQFZ
 
             if (!string.IsNullOrWhiteSpace(previewPath))
             {
-                previewPdfRenderer = PdfiumDocumentRenderer.Open(previewPath);
+                previewRenderPath = PreviewPdfPreparation.CreateAnnotationFlattenedCopy(previewPath);
+                previewPdfRenderer = PdfiumDocumentRenderer.Open(previewRenderPath);
                 imgStartPage = 1;
                 imgPageCount = previewPdfRenderer.PageCount;
                 viewPdfimgs = new Bitmap[imgPageCount];
@@ -2203,6 +2215,12 @@ namespace PDFQFZ
                 previewPdfRenderer = null;
             }
 
+            if (!string.Equals(previewRenderPath, previewPath, StringComparison.OrdinalIgnoreCase))
+            {
+                PreviewPdfPreparation.TryDelete(previewRenderPath);
+            }
+            previewRenderPath = "";
+
             ClearTransparentStampCache();
         }
 
@@ -2231,6 +2249,7 @@ namespace PDFQFZ
             ApplyIdleStampOverlaySize();
             buttonUp.Enabled = false;
             buttonNext.Enabled = false;
+            UpdatePreviewPageScrollBar();
         }
 
         private string GetIdlePreviewPlaceholderText()
