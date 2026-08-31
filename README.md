@@ -77,13 +77,3 @@
 - x86 与 x64 PDFium 原生组件均嵌入单 EXE，不需要在程序旁另行放置渲染 DLL。
 - 项目整体许可现状与第三方组件许可分别见 [`LICENSING.md`](./LICENSING.md) 和 [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md)。
 
-## 版本与下载
-
-- 当前版本：`V1.0 GG优化版`
-- 程序标题：`PDF盖页面章与骑缝章工具 （V1.0  GG优化版）`
-- 基础版本：原作者 `PDFQFZ v1.33`
-- 源码分支：`gg-v1.0`
-
-- 最新发布：[V1.0 GG优化版（基于 PDFQFZ v1.33）](https://github.com/gggg312/PDFQFZ/releases/tag/gg-v1.0-pdfium)
-- 下载文件：[PDFQFZ_V1.0_GG_optimized_PDFium.exe](https://github.com/gggg312/PDFQFZ/releases/download/gg-v1.0-pdfium/PDFQFZ_V1.0_GG_optimized_PDFium.exe)
-- SHA-256：`B2A3F9DB95DB917C1E040FB03BE362056E7AF278E365092BBCEC529A877EEB82`
