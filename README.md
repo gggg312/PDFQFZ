@@ -19,7 +19,7 @@
 
 ## 下载与安装
 
-- 最新版本：**V1.2 GG优化版**，前往 [Releases](https://github.com/gggg312/PDFQFZ/releases) 下载。
+- 最新版本：前往 [Releases](https://github.com/gggg312/PDFQFZ/releases) 下载。
 - 单个 EXE 文件，支持 Windows 10/11（x86/x64），下载后直接运行即可。
 - 首次运行后，会在 EXE 同目录生成配置文件 `yz.log`、`config.ini`，建议将 EXE 单独放在一个文件夹，发送快捷方式到桌面使用，以免误删或误改配置文件。
 
