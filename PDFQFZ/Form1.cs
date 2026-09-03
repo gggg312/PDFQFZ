@@ -69,7 +69,7 @@ namespace PDFQFZ
         int wjType = StartupModeDefaults.FileMode;          //首次启动：文件模式
         int qfzType = StartupModeDefaults.NoSeamStamp;      //首次启动：不加骑缝章
         int yzType = StartupModeDefaults.NoPageStamp;       //首次启动：不盖页面章
-        int djType = StartupModeDefaults.OverlayOutput;     //首次启动：叠加
+        int djType = StartupModeDefaults.OverlayOutput;     //首次启动：合并
         int qmType = 0;     //签名类型
         int wzType = 3;     //骑缝章位置类型
         int yzIndex = -1;   //选择的印章索引
@@ -128,7 +128,6 @@ namespace PDFQFZ
                 string QfzType = iniFileHelper.ContentValue(section, "qfzType");//骑缝章类型
                 string YzType = iniFileHelper.ContentValue(section, "yzType");//印章类型
                 string YzTypeVersion = iniFileHelper.ContentValue(section, "yzTypeVersion");//印章类型索引版本
-                string DjType = iniFileHelper.ContentValue(section, "djType");//叠加类型
                 string QmType = iniFileHelper.ContentValue(section, "qmType");//签名类型 0-不签名 1-内置签名 2-自定义签名
                 string WzType = iniFileHelper.ContentValue(section, "wzType");//骑缝章位置类型
                 string Qbflag = iniFileHelper.ContentValue(section, "qbflag");//是否切边标记
@@ -155,7 +154,7 @@ namespace PDFQFZ
                 wjType = ToIntOrDefault(WjType,1);
                 qfzType = ToIntOrDefault(QfzType, 0);
                 yzType = NormalizeStampTypeFromConfig(YzType, YzTypeVersion);
-                djType = ToIntOrDefault(DjType, 0);
+                djType = StartupModeDefaults.OverlayOutput;
                 qmType = ToIntOrDefault(QmType, 0);  //默认值还是0
                 wzType = ToIntOrDefault(WzType, 3);
                 qbflag = ToIntOrDefault(Qbflag, 0);
@@ -1759,12 +1758,12 @@ namespace PDFQFZ
                 comboBoxYz.SelectedIndex = comboBoxYz.Items.Count - 1; //每次导入章图片后，并选定到最后一张，也就是最新导入的图片
             }
         }
-        //预览图定位，点击大图片控件的位置，定义小图片控件的位置
-        private void pictureBox1_Click(object sender, EventArgs e)
+        //预览图定位，根据页面中的单击位置添加印章。
+        private void AddPreviewStampAtPoint(Point point)
         {
             try
             {
-                Point pt = pictureBox1.PointToClient(Control.MousePosition); //先记录鼠标位置
+                Point pt = point;
                 Size overlaySize = GetCurrentPreviewOverlaySize();
                 pt.X = pt.X - overlaySize.Width / 2;
                 pt.Y = pt.Y - overlaySize.Height / 2;
@@ -1835,7 +1834,7 @@ namespace PDFQFZ
                 comboYz.SelectedIndex = CustomPlacementStampType;
                 lastCommittedYzType = CustomPlacementStampType;
                 SynchronizeVisibleModeControls();
-                SetOperationHint("指定范围页印章已添加，现已回到手动点击盖章。需要再添加一批时，请重新点击“指定范围页盖章”。");
+                SetOperationHint("指定范围页印章已添加，现已回到手动点击盖章；双击印章可删除。需要再添加一批时，请重新点击“指定范围页盖章”。");
                 return;
             }
 
@@ -2136,6 +2135,7 @@ namespace PDFQFZ
             }
 
             cts = new CancellationTokenSource();
+            ResetPreviewSessionState();
             dtPages.Rows.Clear();
             specifiedPageRange = null;
             specifiedRangeFirstClickPending = false;
@@ -2369,6 +2369,7 @@ namespace PDFQFZ
                         Cursor = Cursors.Hand
                     };
                     PositionPreviewOverlay(overlay, placement.X, placement.Y);
+                    AttachPreviewGestureHandlers(overlay);
                     overlay.DoubleClick += pictureBox2_DoubleClick;
                     overlay.BringToFront();
                     previewStampOverlays[placement.Id] = overlay;
