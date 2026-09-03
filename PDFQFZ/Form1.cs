@@ -7,7 +7,6 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Diagnostics;
-using System.Diagnostics.Eventing.Reader;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -21,7 +20,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Windows.Forms.VisualStyles;
-using static System.Collections.Specialized.BitVector32;
 
 namespace PDFQFZ
 {
@@ -91,6 +89,11 @@ namespace PDFQFZ
         readonly PreviewOverlayRequestGate previewOverlayRequestGate = new PreviewOverlayRequestGate();
         X509Certificate2 cert = null;        //证书
         float xzbl = 1f;                     //旋转图片导致长宽变化的比例
+        //后台盖章时使用的 UI 值快照（避免后台线程跨线程访问控件）
+        float uiTextPxValue = 50f;
+        float uiTextPyValue = 50f;
+        bool uiCheckRandom = false;
+        private static readonly Random randomGenerator = new Random();
         private string strIniFilePath = $@"{Application.StartupPath}\config.ini";//获取INI文件路径
         //private bool isSelectionCommitted = false; // 文档预览下拉列表框事件标记位
         private CancellationTokenSource cancellationTokenSource;//处理文件进度取消标记
@@ -107,6 +110,7 @@ namespace PDFQFZ
             InitializeComponent();
             InitializeAdaptiveLayout();
             this.KeyDown += Esc_Key_Down;//接受键盘ESC响应
+            this.FormClosing += Form1_FormClosing;//记住窗口大小位置
             // 在这里处理命令行参数
             commandLinePdfFiles = CommandLineFileLoader.CollectExistingPdfFiles(args);
             if (commandLinePdfFiles.Count > 0)
@@ -116,6 +120,42 @@ namespace PDFQFZ
             }
         }
 
+
+        //关闭时记住窗口大小与位置
+        private void Form1_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            try
+            {
+                IniFileHelper iniFileHelper = new IniFileHelper(strIniFilePath);
+                int saveW, saveH, saveX, saveY;
+                if (this.WindowState == FormWindowState.Maximized)
+                {
+                    saveW = this.RestoreBounds.Width;
+                    saveH = this.RestoreBounds.Height;
+                    saveX = this.RestoreBounds.Left;
+                    saveY = this.RestoreBounds.Top;
+                }
+                else if (this.WindowState == FormWindowState.Normal)
+                {
+                    saveW = this.Width;
+                    saveH = this.Height;
+                    saveX = this.Left;
+                    saveY = this.Top;
+                }
+                else
+                {
+                    return;
+                }
+                iniFileHelper.WriteIniInt(section, "windowWidth", saveW);
+                iniFileHelper.WriteIniInt(section, "windowHeight", saveH);
+                iniFileHelper.WriteIniInt(section, "windowLeft", saveX);
+                iniFileHelper.WriteIniInt(section, "windowTop", saveY);
+            }
+            catch
+            {
+                //保存窗口状态失败不影响退出
+            }
+        }
 
         //程序加载
         private void Form1_Load(object sender, EventArgs e)
@@ -165,6 +205,27 @@ namespace PDFQFZ
                 maxfgs = ToIntOrDefault(Maxfgs, 20);
                 yzIndex = ToIntOrDefault(YzIndex, -1);
             }
+            //恢复上次保存的窗口大小与位置（存在且尺寸合理时才应用）
+            if (File.Exists(strIniFilePath))
+            {
+                IniFileHelper winIni = new IniFileHelper(strIniFilePath);
+                int winW = ToIntOrDefault(winIni.ContentValue(section, "windowWidth"), 0);
+                int winH = ToIntOrDefault(winIni.ContentValue(section, "windowHeight"), 0);
+                int winX = ToIntOrDefault(winIni.ContentValue(section, "windowLeft"), int.MinValue);
+                int winY = ToIntOrDefault(winIni.ContentValue(section, "windowTop"), int.MinValue);
+                System.Drawing.Rectangle workArea = Screen.PrimaryScreen.WorkingArea;
+                if (winW >= 900 && winH >= 600 && winW <= workArea.Width && winH <= workArea.Height)
+                {
+                    this.Width = winW;
+                    this.Height = winH;
+                }
+                if (winX != int.MinValue && winY != int.MinValue && winX < workArea.Right && winY < workArea.Bottom)
+                {
+                    this.StartPosition = FormStartPosition.Manual;
+                    this.Left = winX;
+                    this.Top = winY;
+                }
+            }
             fw = this.Width;
             fh = this.Height;
             collapsedClientWidth = PreviewPanelLayout.GetCollapsedClientWidth(comboPDFlist.Left, 8);
@@ -193,11 +254,6 @@ namespace PDFQFZ
             tip.InitialDelay = 100;      // 鼠标进入后出现提示的延迟
             tip.ReshowDelay = 100;       // 提示再次出现的延迟
             tip.SetToolTip(this.txtAllow, "可设置透明色容差，默认20，最高50");
-
-            //@loquat 20250920
-            //if qmType == 1 {
-            //    textname.Text = signText;
-            //}
 
             pictureBox2.Parent = this.pictureBox1;//设置盖章预览图片的父控件为盖章预览框
             pictureBox2.Location = new Point(220, 380);//盖章预览图片位置
@@ -285,7 +341,6 @@ namespace PDFQFZ
                 StreamReader sr = new StreamReader(yzLog, false);
                 while ((line = sr.ReadLine()) != null)
                 {
-                    Console.WriteLine(line);
                     filename = System.IO.Path.GetFileName(line);//文件名
                     dtYz.Rows.Add(new object[] { filename, line });
                 }
@@ -377,7 +432,7 @@ namespace PDFQFZ
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void button1_Click(object sender, EventArgs e)
+        private async void button1_Click(object sender, EventArgs e)
         {
             wjType = comboType.SelectedIndex;   //文件类型
             qfzType = comboQfz.SelectedIndex;   //骑缝章类型
@@ -390,11 +445,8 @@ namespace PDFQFZ
 
             if (qfzType == 1 && yzType == 0 && qmType == 0)
             {
-                if (MessageBox.Show("你既不盖骑缝章又不盖印章还不要我签名是想让我帮你关机吗?","你想干嘛", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK)
-                {
-                    MessageBox.Show("滚蛋吧,我才不帮你关呢,哼!");
-                    System.Environment.Exit(0);
-                }
+                MessageBox.Show("请至少选择一种盖章方式：页面盖章、骑缝章或数字签名。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
             }
             else if (yzIndex == -1)
             {
@@ -438,9 +490,7 @@ namespace PDFQFZ
                     }
                     else
                     {
-                        SetOperationHint("正在生成盖章文件，请稍候……");
-                        pdfGz();
-                        SetOperationHint("盖章处理完成，请在左下角查看各文件的输出结果。");
+                        await RunStampBatchAsync();
                         //自动保持最后一次盖章的配置信息到配置文件
                         IniFileHelper iniFileHelper = new IniFileHelper(strIniFilePath);
                         
@@ -473,18 +523,54 @@ namespace PDFQFZ
         }
 
         /// <summary>
-        /// 盖章函数
+        /// 盖章处理（后台调度）：先在 UI 线程准备印章与证书，再在后台批量盖章并显示进度
         /// </summary>
-        private void pdfGz()
+        private async Task RunStampBatchAsync()
         {
-            if (!Directory.Exists(outputPath))//输出目录不存在则新建
+            bt_gz.Enabled = false;
+            try
+            {
+                if (!PrepareStampResources())
+                {
+                    SetOperationHint("准备失败，未开始盖章，请检查上面的提示。", true);
+                    return;
+                }
+
+                // 缓存 UI 值供后台线程读取，避免跨线程访问控件
+                uiTextPxValue = ParseFloatOrDefault(textPx.Text, 50f);
+                uiTextPyValue = ParseFloatOrDefault(textPy.Text, 50f);
+                uiCheckRandom = checkRandom.Checked;
+                bool saveSources = isSaveSources.Checked;
+
+                bool hasFailures = await Task.Run(() => pdfGzCore(saveSources));
+                SetOperationHint(hasFailures
+                    ? "盖章处理完成，但有文件失败，请在下方日志查看失败原因。"
+                    : "盖章处理完成，请在左下角查看各文件的输出结果。");
+            }
+            catch (Exception ex)
+            {
+                SetOperationHint("盖章过程中发生错误，请在下方日志查看。", true);
+                AppendLog("错误：" + ex.Message + "\r\n");
+            }
+            finally
+            {
+                bt_gz.Enabled = true;
+            }
+        }
+
+        /// <summary>
+        /// 盖章前的准备：创建输出目录、加载证书、处理印章图片（仅 UI 线程调用）
+        /// </summary>
+        private bool PrepareStampResources()
+        {
+            if (!Directory.Exists(outputPath))
             {
                 Directory.CreateDirectory(outputPath);
             }
 
             if (logContainsOnlyHelp)
             {
-                log.Text = "";//清空日志
+                log.Text = "";
                 logContainsOnlyHelp = false;
             }
             log.ForeColor = Color.Black;
@@ -492,7 +578,7 @@ namespace PDFQFZ
             try
             {
                 //如果要数字签名,先判断证书能否正常加载
-                if (qmType!=0)
+                if (qmType != 0)
                 {
                     string certPath = null;//证书路径
                     if (qmType == 1)
@@ -502,14 +588,10 @@ namespace PDFQFZ
                         {
                             var rSA = RSA.Create(4096); // 生成非对称密钥对
                             var req = new CertificateRequest("CN=" + signText, rSA, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-                            X509Certificate2 newCert = req.CreateSelfSigned(DateTimeOffset.Now, DateTimeOffset.Now.AddYears(5));//这里生成的证书经测试不能直接用,必须先保存为pfx文件再重新加载
+                            X509Certificate2 newCert = req.CreateSelfSigned(DateTimeOffset.Now, DateTimeOffset.Now.AddYears(5));
 
                             // Create PFX (PKCS #12) with private key
-                            File.WriteAllBytes(certDefaultPath, newCert.Export(X509ContentType.Pkcs12, password));//不同版本的.net Pfx跟Pksc12好像并不一样,所以直接指定成Pksc12更安全
-
-                            // Create Base 64 encoded CER (public key only)
-                            //File.WriteAllText("D:\\publicKey.cer","-----BEGIN CERTIFICATE-----\r\n" + Convert.ToBase64String(cert.Export(X509ContentType.Cert), Base64FormattingOptions.InsertLineBreaks) + "\r\n-----END CERTIFICATE-----");
-
+                            File.WriteAllBytes(certDefaultPath, newCert.Export(X509ContentType.Pkcs12, password));
                         }
                         certPath = certDefaultPath;
                     }
@@ -524,42 +606,50 @@ namespace PDFQFZ
                     }
                     catch
                     {
-                        MessageBox.Show("证书加载失败,请检查证书路径和密码");
-                        return;
+                        MessageBox.Show("证书加载失败，请检查证书路径和密码。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return false;
                     }
                 }
 
                 imgYz = new Bitmap(imgPath);
-                //判断印章图片是否PNG格式
-                //if (!imgYz.RawFormat.Equals(System.Drawing.Imaging.ImageFormat.Png))
-                //@loquat 20250922 这里改成用户配置
-                if (cbxTransColor.Checked ==  true)
+                if (cbxTransColor.Checked)
                 {
-                    //如果不是PNG格式,则把白色部分设置为透明
                     imgYz = SetWhiteToTransparent(imgYz);
                 }
-                
-                //再判断是否需要调整整体的透明度
                 if (opacity < 100)
                 {
                     imgYz = SetImageOpacity(imgYz, opacity);
                 }
-                //再看是否需要旋转印章
                 if (rotation != 0)
                 {
-                    bool qb = qbflag==0?true: false;
+                    bool qb = qbflag == 0 ? true : false;
                     int iw = imgYz.Width;
                     imgYz = RotateImg(imgYz, rotation, qb);
-                    xzbl = 1f*imgYz.Width/iw;
+                    xzbl = 1f * imgYz.Width / iw;
                 }
-                // 获取系统临时目录
-                string tempDirectory = Path.GetTempPath();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("印章准备失败：" + ex.Message, "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+        }
 
+        /// <summary>
+        /// 批量盖章核心（后台线程执行）
+        /// </summary>
+        private bool pdfGzCore(bool saveSources)
+        {
+            bool hasFailures = false;
+            try
+            {
                 //目录模式还是文件模式
                 if (wjType == 0)  //目录模式
                 {
                     DirectoryInfo dir = new DirectoryInfo(sourcePath);
-                    var fileInfos = dir.GetFiles("*.pdf",SearchOption.AllDirectories);
+                    var fileInfos = dir.GetFiles("*.pdf", SearchOption.AllDirectories);
+                    List<FileInfo> targets = new List<FileInfo>();
                     foreach (var fileInfo in fileInfos)
                     {
                         if (fileInfo.DirectoryName == outputPath)
@@ -569,70 +659,61 @@ namespace PDFQFZ
                         }
                         if (fileInfo.Extension == ".pdf")
                         {
-                            string source = fileInfo.DirectoryName + "\\" + fileInfo.Name;
-                            string input = source;
-                            string destinationDirectory = isSaveSources.Checked
-                                ? fileInfo.DirectoryName
-                                : outputPath;
-                            string output = OutputFileNamingPolicy.GetNextOutputPath(
-                                destinationDirectory,
-                                source,
-                                fixStr,
-                                fixType == 1);
-                            bool isSurrcess = PDFWatermark(input, output, source);
-                            if (isSurrcess&&djType==1)
-                            {
-                                PDFToiPDF(output);
-                            }
-                            if (isSurrcess)
-                            {
-                                log.Text = log.Text + OutputFileNamingPolicy.BuildSuccessMessage(fileInfo.Name, output) + "\r\n";
-                                //@loquat 20250920 确保保存的签章信息是成功的配置
-                                IniFileHelper iniFileHelper = new IniFileHelper(strIniFilePath);
-                                qmType = comboQmtype.SelectedIndex;
-                                if (qmType == 1)
-                                {
-                                    signBuiltInPath = textname.Text;
-                                    signBuiltInPass = textpass.Text;
-                                    iniFileHelper.WriteIniInt(section, "fixType", fixType);
-                                    iniFileHelper.WriteIniString(section, "signBuiltInPath", signBuiltInPath);
-                                    iniFileHelper.WriteIniString(section, "signBuiltInPass", signBuiltInPass);
-                                }
-                                else if (qmType == 2)
-                                {
-                                    signCustomPath = textname.Text;
-                                    signCustomPass = textpass.Text;
-                                    iniFileHelper.WriteIniInt(section, "fixType", fixType);
-                                    iniFileHelper.WriteIniString(section, "signCustomPath", signCustomPath);
-                                    iniFileHelper.WriteIniString(section, "signCustomPass", signCustomPass);
-                                }
-
-                            }
-                            else
-                            {
-                                log.Text = log.Text + "失败！“" + fileInfo.Name + "”盖章失败！\r\n";
-                            }
+                            targets.Add(fileInfo);
+                        }
+                    }
+                    int total = targets.Count;
+                    int done = 0;
+                    foreach (var fileInfo in targets)
+                    {
+                        done++;
+                        string source = fileInfo.DirectoryName + "\\" + fileInfo.Name;
+                        string destinationDirectory = saveSources
+                            ? fileInfo.DirectoryName
+                            : outputPath;
+                        string output = OutputFileNamingPolicy.GetNextOutputPath(
+                            destinationDirectory,
+                            source,
+                            fixStr,
+                            fixType == 1);
+                        UpdateStampProgress(done, total, fileInfo.Name);
+                        bool isSurrcess = PDFWatermark(source, output, source);
+                        if (isSurrcess && djType == 1)
+                        {
+                            PDFToiPDF(output);
+                        }
+                        if (isSurrcess)
+                        {
+                            AppendLog(OutputFileNamingPolicy.BuildSuccessMessage(fileInfo.Name, output) + "\r\n");
+                            SaveSuccessfulStampConfig();
+                        }
+                        else
+                        {
+                            hasFailures = true;
+                            AppendLog("失败！“" + fileInfo.Name + "”盖章失败！\r\n");
                         }
                     }
                 }
                 else  //文件模式
                 {
                     string[] fileArray = sourcePath.Split(',');//字符串转数组
+                    int total = fileArray.Length;
+                    int done = 0;
                     foreach (string file in fileArray)
                     {
+                        done++;
                         string filename = Path.GetFileName(file);//文件名
                         string output = OutputFileNamingPolicy.GetNextOutputPath(
                             outputPath,
                             file,
                             fixStr,
                             fixType == 1);
-                        string source = file;
-                        string input = source;
                         string actualOutput = output;
-                        bool isSurrcess = PDFWatermark(input, output, source);
+                        UpdateStampProgress(done, total, filename);
+                        bool isSurrcess = PDFWatermark(file, output, file);
                         if (isSurrcess)
                         {
-                            if(djType == 1)
+                            if (djType == 1)
                             {
                                 PDFToiPDF(output);
                             }
@@ -645,70 +726,94 @@ namespace PDFQFZ
                                     actualOutput = jmoutput;
                                 }
                             }
-                        }
-                        if (isSurrcess)
-                        {
-                            log.Text = log.Text + OutputFileNamingPolicy.BuildSuccessMessage(filename, actualOutput) + "\r\n";
-                            //@loquat 20250920 确保保存的签章信息是成功的配置
-                            IniFileHelper iniFileHelper = new IniFileHelper(strIniFilePath);
-                            qmType = comboQmtype.SelectedIndex;
-                            if (qmType == 1)
-                            {
-                                signBuiltInPath = textname.Text;
-                                signBuiltInPass = textpass.Text;
-                                iniFileHelper.WriteIniInt(section, "fixType", fixType);
-                                iniFileHelper.WriteIniString(section, "signBuiltInPath", signBuiltInPath);
-                                iniFileHelper.WriteIniString(section, "signBuiltInPass", signBuiltInPass);
-                            }
-                            else if (qmType == 2)
-                            {
-                                signCustomPath = textname.Text;
-                                signCustomPass = textpass.Text;
-                                iniFileHelper.WriteIniInt(section, "fixType", fixType);
-                                iniFileHelper.WriteIniString(section, "signCustomPath", signCustomPath);
-                                iniFileHelper.WriteIniString(section, "signCustomPass", signCustomPass);
-                            }
+                            AppendLog(OutputFileNamingPolicy.BuildSuccessMessage(filename, actualOutput) + "\r\n");
+                            SaveSuccessfulStampConfig();
                         }
                         else
                         {
-                            log.Text = log.Text + "失败！“" + filename + "”盖章失败！\r\n";
+                            hasFailures = true;
+                            AppendLog("失败！“" + filename + "”盖章失败！\r\n");
                         }
                     }
                 }
-                
+                return hasFailures;
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.ToString());
+                AppendLog("处理过程中发生错误：" + ex.Message + "\r\n");
+                return true;
             }
+        }
+
+        /// <summary>
+        /// 后台线程安全地向日志区追加一行
+        /// </summary>
+        private void AppendLog(string line)
+        {
+            if (log.InvokeRequired)
+            {
+                log.BeginInvoke(new Action<string>(AppendLog), line);
+                return;
+            }
+            log.AppendText(line);
+        }
+
+        /// <summary>
+        /// 更新盖章进度（进度条 + 操作提示），线程安全
+        /// </summary>
+        private void UpdateStampProgress(int done, int total, string fileName)
+        {
+            if (progressBar1.InvokeRequired)
+            {
+                progressBar1.BeginInvoke(new Action(() => UpdateStampProgress(done, total, fileName)));
+                return;
+            }
+            if (total > 0)
+            {
+                progressBar1.Visible = true;
+                progressBar1.Maximum = total;
+                progressBar1.Value = Math.Min(done, total);
+            }
+            SetOperationHint(string.Format("正在处理第 {0}/{1} 个文件：{2}", done, total, fileName));
+            if (done >= total)
+            {
+                progressBar1.Visible = false;
+            }
+        }
+
+        /// <summary>
+        /// 盖章成功后保存一次签章配置（从后台线程调用，只读取已缓存的字段）
+        /// </summary>
+        private void SaveSuccessfulStampConfig()
+        {
+            IniFileHelper iniFileHelper = new IniFileHelper(strIniFilePath);
+            if (qmType == 1)
+            {
+                signBuiltInPath = signText;
+                signBuiltInPass = password;
+                iniFileHelper.WriteIniInt(section, "fixType", fixType);
+                iniFileHelper.WriteIniString(section, "signBuiltInPath", signBuiltInPath);
+                iniFileHelper.WriteIniString(section, "signBuiltInPass", signBuiltInPass);
+            }
+            else if (qmType == 2)
+            {
+                signCustomPath = signText;
+                signCustomPass = password;
+                iniFileHelper.WriteIniInt(section, "fixType", fixType);
+                iniFileHelper.WriteIniString(section, "signCustomPath", signCustomPath);
+                iniFileHelper.WriteIniString(section, "signCustomPass", signCustomPass);
+            }
+        }
+
+        private static float ParseFloatOrDefault(string text, float defaultValue)
+        {
+            return float.TryParse(text, out float value) ? value : defaultValue;
         }
         //设置图片白色为透明
         private Bitmap SetWhiteToTransparent(Bitmap src)
         {
             return WhiteTransparencyHelper.Apply(src, GetWhiteTransparencyTolerance());
         }
-        //private Bitmap SetWhiteToTransparent(System.Drawing.Bitmap img)
-        //{
-        //    Bitmap bitmap = new Bitmap(img);
-        //    // 遍历图片的每个像素
-        //    for (int x = 0; x < bitmap.Width; x++)
-        //    {
-        //        for (int y = 0; y < bitmap.Height; y++)
-        //        {
-        //            Color pixelColor = bitmap.GetPixel(x, y);
-        //
-        //            // 判断像素颜色是否为白色
-        //            if (pixelColor.R > 230 && pixelColor.G > 230 && pixelColor.B > 230)  //这个容错蛮高啊
-        //            {
-        //                // 将白色像素设置为透明
-        //                bitmap.SetPixel(x, y, Color.Transparent);
-        //            }
-        //        }
-        //    }
-        //
-        //    return bitmap;
-        //}
-
 
         /// <summary>
         /// 解决任意骑缝章时没有选定的页面的问题
@@ -872,10 +977,7 @@ namespace PDFQFZ
             g.DrawImage(bitmap, rect);
             //重至绘图的所有变换 
             g.ResetTransform();
-            g.Save();
             g.Dispose();
-            //保存旋转后的图片 
-            //dsImage.Save("D:\\tmp\\img\\tmp.png", System.Drawing.Imaging.ImageFormat.Png);
 
             return dsImage;
         }
@@ -909,7 +1011,6 @@ namespace PDFQFZ
                 g.DrawImage(img, new System.Drawing.Rectangle(0, 0, sw, H), new System.Drawing.Rectangle(W-tmpw, 0, sw, H), GraphicsUnit.Pixel);
                 g.Dispose();
                 nImage[i] = newbitmap;
-                //newbitmap.Save("D:\\tmp\\img\\" + i + ".png", System.Drawing.Imaging.ImageFormat.Png);//查看图片是否正常
                 tmpw = tmpw - sw;
             }
             return nImage;
@@ -918,18 +1019,14 @@ namespace PDFQFZ
         //PDF盖章(贴图)
         private bool PDFWatermark(string inputfilepath, string outputfilepath, string sourcepath)
         {
-            //float sfbl = 100f * size * xzbl * 2.842f / imgYz.Height;
             float sfbl = (100f * size * xzbl * 72) / (25.4f * imgYz.Width);
 
-            //PdfGState state = new PdfGState();
-            //state.FillOpacity = 0.01f*opacity;//印章图片不透明度
-
-            //throw new NotImplementedException();
             PdfReader pdfReader = null;
             PdfStamper pdfStamper = null;
-            FileStream fileStream = new FileStream(outputfilepath, FileMode.Create);
+            FileStream fileStream = null;
             try
             {
+                fileStream = new FileStream(outputfilepath, FileMode.Create);
                 pdfReader = new PdfReader(inputfilepath, new System.Text.UTF8Encoding().GetBytes(pdfpassword));//选择需要印章的pdf
                 if (qmType != 0)
                 {
@@ -1026,13 +1123,6 @@ namespace PDFQFZ
                                 qfzImage = RotateImg(nImage[y], 90, false);
                             }
                             iTextSharp.text.Image image = iTextSharp.text.Image.GetInstance(qfzImage, System.Drawing.Imaging.ImageFormat.Png);//获取骑缝章对应页的部分
-                            //image.Transparency = new int[] { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };//这里透明背景的图片会变黑色,所以设置黑色为透明
-                            //waterMarkContent.SaveState();//通过PdfGState调整图片整体的透明度
-                            //waterMarkContent.SetGState(state);
-                            //image.GrayFill = 20;//透明度，灰色填充
-                            //image.Rotation//旋转
-                            //image.ScaleToFit(140F, 320F);//设置图片的指定大小
-                            //image.RotationDegrees = rotation//旋转角度
                             float imageW, imageH;
                             image.ScalePercent(sfbl);//设置图片比例
                             imageW = image.Width * sfbl / 100f;
@@ -1155,15 +1245,15 @@ namespace PDFQFZ
                             waterMarkContent = pdfStamper.GetOverContent(i);//获取当前页内容
                             int pageRotation = pdfReader.GetPageRotation(i);//获取指定页面的旋转度
                             iTextSharp.text.Rectangle pageSize = pdfReader.GetPageSize(i);//获取当前页尺寸
-                            float wbl = Convert.ToSingle(textPx.Text);
-                            float hbl = 1 - Convert.ToSingle(textPy.Text);
+                            float wbl = uiTextPxValue;
+                            float hbl = 1 - uiTextPyValue;
                             StampPlacement pagePlacement = stampPlacements.ForPage(sourcepath, i).FirstOrDefault();
                             if (pagePlacement != null)
                             {
                                 wbl = pagePlacement.X;
                                 hbl = 1f - pagePlacement.Y;
                             }
-                            else if (checkRandom.Checked == true)
+                            else if (uiCheckRandom)
                             {
                                 Random random = new Random();
                                 int random_w = random.Next(-2, 3);
@@ -1209,9 +1299,6 @@ namespace PDFQFZ
 
                     PdfSignatureAppearance signatureAppearance = pdfStamper.SignatureAppearance;
                     signatureAppearance.SignDate = DateTime.Now;
-                    //signatureAppearance.SignatureCreator = "";
-                    //signatureAppearance.Reason = "验证身份";
-                    //signatureAppearance.Location = "深圳";
                     if (!StampRenderPolicy.ShouldRenderVisibleStamp(yzType))
                     {
                         signatureAppearance.SetVisibleSignature(new iTextSharp.text.Rectangle(0, 0, 0, 0), numberOfPages, null);
@@ -1219,16 +1306,7 @@ namespace PDFQFZ
                     else
                     {
                         signatureAppearance.SignatureRenderingMode = PdfSignatureAppearance.RenderingMode.GRAPHIC;//仅体现图片
-                        signatureAppearance.SignatureGraphic = img;//iTextSharp.text.Image.GetInstance(imgPath);
-                        //signatureAppearance.Acro6Layers = true;
-
-                        //StringBuilder buf = new StringBuilder();
-                        //buf.Append("Digitally Signed by ");
-                        //String name = cert.SubjectName.Name;
-                        //buf.Append(name).Append('\n');
-                        //buf.Append("Date: ").Append(DateTime.Now.ToString("dd-MM-yyyy HH:mm:ss zzz"));
-                        //string text = buf.ToString();
-                        //signatureAppearance.Layer2Text = text;
+                        signatureAppearance.SignatureGraphic = img;
 
                         float bk = 2;//数字签名的图片要加上边框才能跟普通印章的位置完全一致
                         signatureAppearance.SetVisibleSignature(new iTextSharp.text.Rectangle(stampXPos - bk, stampYPos - bk, stampXPos + imgW + bk, stampYPos + imgH + bk), signpage, null);
@@ -1240,12 +1318,12 @@ namespace PDFQFZ
             }
             catch (BadPasswordException)
             {
-                MessageBox.Show("PDF密码错误.");
+                AppendLog("文件“" + Path.GetFileName(inputfilepath) + "”打不开：PDF 密码错误或文件已加密。\r\n");
                 return false;
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.ToString());
+                AppendLog("文件“" + Path.GetFileName(inputfilepath) + "”盖章失败：" + ex.Message + "\r\n");
                 return false;
             }
             finally
@@ -1259,6 +1337,23 @@ namespace PDFQFZ
 
                 if (fileStream != null)
                     fileStream.Close();
+
+                //盖章失败时清理可能残留的 0 字节空文件
+                if (File.Exists(outputfilepath))
+                {
+                    try
+                    {
+                        FileInfo fi = new FileInfo(outputfilepath);
+                        if (fi.Length == 0)
+                        {
+                            File.Delete(outputfilepath);
+                        }
+                    }
+                    catch
+                    {
+                        //删除失败不影响主流程
+                    }
+                }
             }
         }
 
@@ -1292,9 +1387,12 @@ namespace PDFQFZ
 
         private int GetRandomStampRotation(int page, int signPage)
         {
-            if (page != signPage && checkRandom.Checked)
+            if (page != signPage && uiCheckRandom)
             {
-                return new Random().Next(-2, 3);
+                lock (randomGenerator)
+                {
+                    return randomGenerator.Next(-2, 3);
+                }
             }
 
             return 0;
@@ -1358,17 +1456,12 @@ namespace PDFQFZ
 
                 PdfSignatureAppearance signatureAppearance = pdfStamper.SignatureAppearance;
                 signatureAppearance.SignDate = DateTime.Now;
-                //signatureAppearance.SignatureCreator = "";
-                //signatureAppearance.Reason = "验证身份";
-                //signatureAppearance.Location = "深圳";
-
-                //signatureAppearance.SetVisibleSignature(new iTextSharp.text.Rectangle(0, 0, 0, 0), numberOfPages, null);
 
                 MakeSignature.SignDetached(signatureAppearance, externalSignature, chain, null, null, null, 0, CryptoStandard.CMS);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.ToString());
+                MessageBox.Show("数字签名失败：" + ex.Message, "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             finally
             {
@@ -1659,9 +1752,6 @@ namespace PDFQFZ
                         pathText.Text = $"正在加载文件 {i + 1}/{totalFiles}\r\n";
                         progressBar1.Value = i + 1;
                     }));
-
-                    // 模拟加载延时（可以去掉或根据需要调整）
-                    Task.Delay(100).Wait();
                 }
             });
 
@@ -2037,7 +2127,6 @@ namespace PDFQFZ
                     string extension = System.IO.Path.GetExtension(filePath);//文件后缀名
                     if (extension == ".pdf")
                     {
-                        //todo you code
                         pdfPaths += filePath + ",";
                     }
                 }

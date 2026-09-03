@@ -85,7 +85,7 @@ namespace PDFQFZ
         {
             SuspendLayout();
 
-            Text = "PDF盖页面章与骑缝章工具 （V1.2  GG优化版）";
+            Text = "PDF盖页面章与骑缝章工具 （V1.2.1  GG优化版）";
             FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = true;
             StartPosition = FormStartPosition.CenterScreen;
@@ -1285,6 +1285,12 @@ namespace PDFQFZ
         {
             if (operationHint == null)
             {
+                return;
+            }
+
+            if (operationHint.InvokeRequired)
+            {
+                operationHint.BeginInvoke(new Action(() => SetOperationHint(text, isError)));
                 return;
             }
 
