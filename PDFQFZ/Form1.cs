@@ -482,9 +482,8 @@ namespace PDFQFZ
                 MessageBox.Show("请先选择印章!");
                 return;
             }
-            else
-            {
-                sourcePath = pathText.Text;
+
+            sourcePath = pathText.Text;
                 outputPath = textBCpath.Text;
                 imgPath = comboBoxYz.SelectedValue != null ? comboBoxYz.SelectedValue.ToString() : "";
                 signText = textname.Text;
@@ -522,34 +521,38 @@ namespace PDFQFZ
                     else
                     {
                         await RunStampBatchAsync();
-                        //自动保持最后一次盖章的配置信息到配置文件
-                        IniFileHelper iniFileHelper = new IniFileHelper(strIniFilePath);
-                        
-                        iniFileHelper.WriteIniString(section, "wjType", wjType.ToString());
-                        iniFileHelper.WriteIniString(section, "qfzType", qfzType.ToString());
-                        iniFileHelper.WriteIniString(section, "yzType", yzType.ToString());
-                        iniFileHelper.WriteIniString(section, "yzTypeVersion", "3");
-                        iniFileHelper.WriteIniString(section, "djType", djType.ToString());
-                        iniFileHelper.WriteIniString(section, "qmType", qmType.ToString());
-                        iniFileHelper.WriteIniString(section, "wzType", wzType.ToString());
-                        iniFileHelper.WriteIniString(section, "qbflag", qbflag.ToString());
-                        iniFileHelper.WriteIniString(section, "size", size.ToString());
-                        iniFileHelper.WriteIniString(section, "rotation", rotation.ToString());
-                        iniFileHelper.WriteIniString(section, "opacity", opacity.ToString());
-                        iniFileHelper.WriteIniString(section, "wz", wz.ToString());
-                        iniFileHelper.WriteIniString(section, "maxfgs", maxfgs.ToString());
-                        iniFileHelper.WriteIniString(section, "yzIndex", yzIndex.ToString());
 
-                        //@loquat
-                        //iniFileHelper.WriteIniString(section, "signText", signText);
-                        //去pdfGz里，成功才保存签名的3个参数
+                        // 仅在本次有实际盖章操作时才保存印章配置，避免"仅输出文件"把印章参数覆盖为空值
+                        if (needStampImage)
+                        {
+                            //自动保持最后一次盖章的配置信息到配置文件
+                            IniFileHelper iniFileHelper = new IniFileHelper(strIniFilePath);
+
+                            iniFileHelper.WriteIniString(section, "wjType", wjType.ToString());
+                            iniFileHelper.WriteIniString(section, "qfzType", qfzType.ToString());
+                            iniFileHelper.WriteIniString(section, "yzType", yzType.ToString());
+                            iniFileHelper.WriteIniString(section, "yzTypeVersion", "3");
+                            iniFileHelper.WriteIniString(section, "djType", djType.ToString());
+                            iniFileHelper.WriteIniString(section, "qmType", qmType.ToString());
+                            iniFileHelper.WriteIniString(section, "wzType", wzType.ToString());
+                            iniFileHelper.WriteIniString(section, "qbflag", qbflag.ToString());
+                            iniFileHelper.WriteIniString(section, "size", size.ToString());
+                            iniFileHelper.WriteIniString(section, "rotation", rotation.ToString());
+                            iniFileHelper.WriteIniString(section, "opacity", opacity.ToString());
+                            iniFileHelper.WriteIniString(section, "wz", wz.ToString());
+                            iniFileHelper.WriteIniString(section, "maxfgs", maxfgs.ToString());
+                            iniFileHelper.WriteIniString(section, "yzIndex", yzIndex.ToString());
+
+                            //@loquat
+                            //iniFileHelper.WriteIniString(section, "signText", signText);
+                            //去pdfGz里，成功才保存签名的3个参数
+                        }
                     }
                 }
                 else
                 {
                     MessageBox.Show("文件路径不能为空，请先选择路径。");
                 }
-            }
             
         }
 
