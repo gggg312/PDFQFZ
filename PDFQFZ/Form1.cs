@@ -458,13 +458,13 @@ namespace PDFQFZ
             qbflag = comboBoxQB.SelectedIndex;  //是否切边标记
             yzIndex = comboBoxYz.SelectedIndex; //选择的印章索引
 
-            // 汇总本次是否有任何盖章操作（页面章 / 骑缝章 / 数字签名 / 预览中已放置的章）
+            // 汇总本次是否实际会产生盖章效果（骑缝章 / 数字签名 / 预览中已放置的章）。
+            // 注意：页面盖章的"手动点击/指定范围"只是操作模式，是否真的盖章要看预览里是否已有章。
             bool wantsSeam = qfzType != 1;
-            bool wantsPage = yzType != 0;
             bool wantsSignature = qmType != 0;
             bool hasPreviewStamps = stampPlacements.Count > 0;
 
-            if (!wantsSeam && !wantsPage && !wantsSignature && !hasPreviewStamps)
+            if (!wantsSeam && !wantsSignature && !hasPreviewStamps)
             {
                 // 没有任何盖章操作：确认后仍生成（用户可能只想要一个不盖章的合并/输出文件）
                 DialogResult choice = MessageBox.Show(
@@ -493,8 +493,8 @@ namespace PDFQFZ
 
                 if (sourcePath != "" && outputPath != "" && (imgPath != "" || qfzType == 1 && yzType == 0))
                 {
-                    // 是否需要印章图片/印章参数：没有任何盖章操作时不需要，直接输出文件
-                    bool needStampImage = wantsSeam || wantsPage || wantsSignature || hasPreviewStamps;
+                    // 是否需要印章图片/印章参数：没有任何实际盖章操作时不需要，直接输出文件
+                    bool needStampImage = wantsSeam || wantsSignature || hasPreviewStamps;
                     if (needStampImage && !File.Exists(imgPath))
                     {
                         MessageBox.Show("印章文件读取失败,请重新导入印章。");
@@ -608,8 +608,8 @@ namespace PDFQFZ
 
             try
             {
-                // 没有任何盖章操作且未选择印章时：用占位图片走"仅输出文件"流程（不会实际盖章）
-                if (qfzType == 1 && yzType == 0 && qmType == 0 && stampPlacements.Count == 0
+                // 没有任何实际盖章操作且未选择印章时：用占位图片走"仅输出文件"流程（不会实际盖章）
+                if (qfzType == 1 && qmType == 0 && stampPlacements.Count == 0
                     && (string.IsNullOrEmpty(imgPath) || !File.Exists(imgPath)))
                 {
                     imgYz = new Bitmap(1, 1);
