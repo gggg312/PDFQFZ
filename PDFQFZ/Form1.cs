@@ -117,11 +117,11 @@ namespace PDFQFZ
         private int lastCommittedYzType;
         private bool suppressYzSelectionChange;
         // 保存阶段的不确定进度提示：提示区框内两行文字动画（省略号增减）+ 实时计时，不改变框的布局位置
-        private System.Windows.Forms.Timer savingTimer;
         private DateTime savingStartTime;
-        private bool savingIndicatorActive;
+        private volatile bool savingIndicatorActive;
         private int savingDotPhase;
         private string savingStatusOriginalLog;
+        private DateTime lastSavingTick;
 
         public Form1(string[] args)
         {
@@ -855,9 +855,9 @@ namespace PDFQFZ
         /// </summary>
         private void ShowSavingIndicator(bool active)
         {
-            if (log.InvokeRequired)
+            if (this.InvokeRequired)
             {
-                log.BeginInvoke(new Action<bool>(ShowSavingIndicator), active);
+                this.BeginInvoke(new Action<bool>(ShowSavingIndicator), active);
                 return;
             }
 
@@ -866,25 +866,38 @@ namespace PDFQFZ
                 savingIndicatorActive = true;
                 savingStartTime = DateTime.Now;
                 savingDotPhase = 0;
+                lastSavingTick = DateTime.MinValue;
                 savingStatusOriginalLog = log.Text;
-                if (savingTimer == null)
-                {
-                    savingTimer = new System.Windows.Forms.Timer();
-                    savingTimer.Interval = 300;
-                    savingTimer.Tick += (s, e) => UpdateSavingIndicatorTick();
-                }
-                savingTimer.Start();
+                // 界面空闲事件驱动文字刷新（纯 UI 线程，无需后台任务）
+                Application.Idle += OnSavingIdle;
                 UpdateSavingIndicatorTick();
             }
             else
             {
                 savingIndicatorActive = false;
-                if (savingTimer != null)
-                {
-                    savingTimer.Stop();
-                }
+                Application.Idle -= OnSavingIdle;
                 log.Text = savingStatusOriginalLog;
             }
+        }
+
+        /// <summary>
+        /// 界面空闲时刷新保存文字（UI 线程）：每 300ms 更新一次，省略号增减 + 计时递增
+        /// </summary>
+        private void OnSavingIdle(object sender, EventArgs e)
+        {
+            if (!savingIndicatorActive)
+            {
+                Application.Idle -= OnSavingIdle;
+                return;
+            }
+
+            if ((DateTime.Now - lastSavingTick).TotalMilliseconds < 300)
+            {
+                return;
+            }
+
+            lastSavingTick = DateTime.Now;
+            UpdateSavingIndicatorTick();
         }
 
         /// <summary>
