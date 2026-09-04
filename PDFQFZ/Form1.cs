@@ -725,7 +725,6 @@ namespace PDFQFZ
                         UpdateStampProgress(done, total, fileInfo.Name);
                         bool isSurrcess = PDFWatermark(source, output, source,
                             (d, t) => UpdateStampPageProgress(d, t, fileInfo.Name),
-                            msg => SetOperationHint(msg),
                             saving => ShowSavingIndicator(saving));
                         if (isSurrcess && djType == 1)
                         {
@@ -761,7 +760,6 @@ namespace PDFQFZ
                         UpdateStampProgress(done, total, filename);
                         bool isSurrcess = PDFWatermark(file, output, file,
                             (d, t) => UpdateStampPageProgress(d, t, filename),
-                            msg => SetOperationHint(msg),
                             saving => ShowSavingIndicator(saving));
                         if (isSurrcess)
                         {
@@ -1139,7 +1137,7 @@ namespace PDFQFZ
         }
 
         //PDF盖章(贴图)
-        private bool PDFWatermark(string inputfilepath, string outputfilepath, string sourcepath, Action<int, int> pageProgress = null, Action<string> statusMessage = null, Action<bool> savingIndicator = null)
+        private bool PDFWatermark(string inputfilepath, string outputfilepath, string sourcepath, Action<int, int> pageProgress = null, Action<bool> savingIndicator = null)
         {
             float sfbl = (100f * size * xzbl * 72) / (25.4f * imgYz.Width);
 
@@ -1460,14 +1458,11 @@ namespace PDFQFZ
             finally
             {
                 // 保存阶段：iTextSharp 在 Close 时才把改动写回整个文件，大文件较耗时。
-                // 开启不确定进度动画 + 计时提示，确保 Close 期间界面仍有反馈（Close 整体写入，无法拿到真实百分比）
+                // 开启不确定进度动画 + 计时提示（提示文字由 ShowSavingIndicator 统一设置），
+                // 确保 Close 期间界面仍有反馈（Close 整体写入，无法拿到真实百分比）
                 if (savingIndicator != null)
                 {
                     savingIndicator(true);
-                }
-                if (statusMessage != null)
-                {
-                    statusMessage("正在保存文件，请稍候...");
                 }
 
                 try
