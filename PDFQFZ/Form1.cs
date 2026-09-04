@@ -1931,8 +1931,18 @@ namespace PDFQFZ
 
                 textPx.Text = px.ToString("#0.0000");
                 textPy.Text = py.ToString("#0.0000");
-                if (string.IsNullOrWhiteSpace(previewPath) || comboBoxYz.SelectedValue == null)
+                if (string.IsNullOrWhiteSpace(previewPath))
                 {
+                    MessageBox.Show("请先加载 PDF，再进行手动盖章。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                if (comboBoxYz.SelectedValue == null)
+                {
+                    // 仅手动点击 / 指定范围等放置类模式提示；其他模式保持原静默行为
+                    if (IsPlacementStampType(yzType))
+                    {
+                        MessageBox.Show("请先选择印章！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
                     return;
                 }
 
@@ -3143,6 +3153,20 @@ namespace PDFQFZ
             {
                 SetOperationHint("请先加载 PDF，再设置指定范围。", true);
                 MessageBox.Show("请先加载 PDF，再设置指定范围。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            if (comboBoxYz.SelectedValue == null)
+            {
+                MessageBox.Show("请先选择印章！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                RevertStampTypeSelection();
+                return;
+            }
+            string specifiedStampPath = comboBoxYz.SelectedValue.ToString();
+            if (!File.Exists(specifiedStampPath))
+            {
+                MessageBox.Show("印章图片不存在，请重新选择。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                RevertStampTypeSelection();
                 return;
             }
 
