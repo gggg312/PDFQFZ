@@ -116,11 +116,12 @@ namespace PDFQFZ
         private int activeSpecifiedBatchId;
         private int lastCommittedYzType;
         private bool suppressYzSelectionChange;
-        // 保存阶段的不确定进度提示：左边提示区两行文字动画（省略号增减）+ 实时计时，缓解大文件保存期等待焦虑
+        // 保存阶段的不确定进度提示：提示区框内两行文字动画（省略号增减）+ 实时计时，不改变框的布局位置
         private System.Windows.Forms.Timer savingTimer;
         private DateTime savingStartTime;
         private bool savingIndicatorActive;
         private int savingDotPhase;
+        private string savingStatusOriginalLog;
 
         public Form1(string[] args)
         {
@@ -849,14 +850,14 @@ namespace PDFQFZ
         }
 
         /// <summary>
-        /// 保存阶段指示器（后台线程调用）：在左边提示区显示两行文字——
+        /// 保存阶段指示器（后台线程调用）：不改变提示区框的位置，只替换框内文字内容——
         /// “正在保存中.....”省略号循环增减动画 + 第二行已用时计时，让用户明确知道程序仍在运行。
         /// </summary>
         private void ShowSavingIndicator(bool active)
         {
-            if (savingStatusLabel.InvokeRequired)
+            if (log.InvokeRequired)
             {
-                savingStatusLabel.BeginInvoke(new Action<bool>(ShowSavingIndicator), active);
+                log.BeginInvoke(new Action<bool>(ShowSavingIndicator), active);
                 return;
             }
 
@@ -865,13 +866,13 @@ namespace PDFQFZ
                 savingIndicatorActive = true;
                 savingStartTime = DateTime.Now;
                 savingDotPhase = 0;
+                savingStatusOriginalLog = log.Text;
                 if (savingTimer == null)
                 {
                     savingTimer = new System.Windows.Forms.Timer();
                     savingTimer.Interval = 300;
                     savingTimer.Tick += (s, e) => UpdateSavingIndicatorTick();
                 }
-                savingStatusLabel.Visible = true;
                 savingTimer.Start();
                 UpdateSavingIndicatorTick();
             }
@@ -882,7 +883,7 @@ namespace PDFQFZ
                 {
                     savingTimer.Stop();
                 }
-                savingStatusLabel.Visible = false;
+                log.Text = savingStatusOriginalLog;
             }
         }
 
@@ -899,7 +900,7 @@ namespace PDFQFZ
             savingDotPhase = (savingDotPhase + 1) % 8;
             int dotCount = 3 + (savingDotPhase < 4 ? savingDotPhase : 7 - savingDotPhase);
             TimeSpan elapsed = DateTime.Now - savingStartTime;
-            savingStatusLabel.Text = string.Format("正在保存中{0}\r\n已用时 {1:mm\\:ss}",
+            log.Text = string.Format("正在保存中{0}\r\n已用时 {1:mm\\:ss}",
                 new string('.', dotCount), elapsed);
         }
 

@@ -30,7 +30,6 @@ namespace PDFQFZ
         private Button scrollViewButton;
         private TableLayoutPanel previewToolbar;
         private Label operationHint;
-        private Label savingStatusLabel;
         private Label previewPlaceholder;
         private Button specifiedPageButton;
         private TableLayoutPanel leftLayout;
@@ -136,7 +135,7 @@ namespace PDFQFZ
                 AutoScroll = true,
                 Padding = new Padding(12, 9, 12, 24),
                 ColumnCount = 1,
-                RowCount = 6
+                RowCount = 5
             };
             leftLayout = layout;
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -145,7 +144,6 @@ namespace PDFQFZ
             // panel is the flexible region so controls do not drift apart.
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44F));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             border.Controls.Add(layout);
 
@@ -163,25 +161,12 @@ namespace PDFQFZ
             };
             layout.Controls.Add(actionPanel, 0, 3);
 
-            // 保存阶段状态提示（两行：省略号动画 + 已用时计时），平时隐藏
-            savingStatusLabel = new Label
-            {
-                Dock = DockStyle.Fill,
-                AutoSize = false,
-                Visible = false,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Margin = new Padding(0, 0, 20, 2),
-                ForeColor = Color.FromArgb(34, 62, 91),
-                BackColor = SystemColors.Control
-            };
-            layout.Controls.Add(savingStatusLabel, 0, 4);
-
             log.Dock = DockStyle.Fill;
             log.Margin = new Padding(0, 0, 20, 18);
             log.ScrollBars = ScrollBars.Vertical;
             log.WordWrap = true;
             log.MinimumSize = new Size(0, 150);
-            layout.Controls.Add(log, 0, 5);
+            layout.Controls.Add(log, 0, 4);
         }
 
         private Control BuildFileSection()
