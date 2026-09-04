@@ -93,6 +93,17 @@ namespace PDFQFZ
         float uiTextPxValue = 50f;
         float uiTextPyValue = 50f;
         bool uiCheckRandom = false;
+
+        //按文字盖章相关
+        HistoryInputControl autoStampInput = null;
+        System.Windows.Forms.Button autoStampButton = null;
+        System.Windows.Forms.Button undoAutoStampButton = null;
+        int lastAutoStampBatchId = 0;
+
+        //按文字盖章历史记忆相关
+        const string AutoStampHistoryIniKey = "autoStampHistory";
+        const int MaxAutoStampHistory = 10;
+        const string AutoStampHistorySeparator = "||";
         private static readonly Random randomGenerator = new Random();
         private string strIniFilePath = $@"{Application.StartupPath}\config.ini";//获取INI文件路径
         //private bool isSelectionCommitted = false; // 文档预览下拉列表框事件标记位
@@ -378,6 +389,9 @@ namespace PDFQFZ
                     comboPDFlist.SelectedIndex = comboPDFlist.Items.Count - 1;
                 }
             }
+
+            //预填上一次输入过的盖章文字
+            InitAutoStampHistoryOnLoad();
         }
 
         public static int ToIntOrDefault(string str, int defaultValue = 0)
@@ -677,7 +691,8 @@ namespace PDFQFZ
                             fixStr,
                             fixType == 1);
                         UpdateStampProgress(done, total, fileInfo.Name);
-                        bool isSurrcess = PDFWatermark(source, output, source);
+                        bool isSurrcess = PDFWatermark(source, output, source,
+                            (d, t) => UpdateStampPageProgress(d, t, fileInfo.Name));
                         if (isSurrcess && djType == 1)
                         {
                             PDFToiPDF(output);
@@ -710,7 +725,8 @@ namespace PDFQFZ
                             fixType == 1);
                         string actualOutput = output;
                         UpdateStampProgress(done, total, filename);
-                        bool isSurrcess = PDFWatermark(file, output, file);
+                        bool isSurrcess = PDFWatermark(file, output, file,
+                            (d, t) => UpdateStampPageProgress(d, t, filename));
                         if (isSurrcess)
                         {
                             if (djType == 1)
@@ -779,6 +795,22 @@ namespace PDFQFZ
             {
                 progressBar1.Visible = false;
             }
+        }
+
+        /// <summary>
+        /// 页级盖章进度（后台线程调用）：提示区实时显示“正在盖章中：已完成 X/Y 页（Z%）”，
+        /// 让页数多的文件也能看到动态推进，避免误以为卡死。
+        /// </summary>
+        private void UpdateStampPageProgress(int done, int total, string fileName)
+        {
+            if (progressBar1.InvokeRequired)
+            {
+                progressBar1.BeginInvoke(new Action(() => UpdateStampPageProgress(done, total, fileName)));
+                return;
+            }
+            int percent = total > 0 ? (int)Math.Round(100.0 * done / total) : 0;
+            SetOperationHint(string.Format("正在盖章中：已完成 {0}/{1} 页（{2}%），文件：{3}",
+                done, total, percent, fileName));
         }
 
         /// <summary>
@@ -1017,7 +1049,7 @@ namespace PDFQFZ
         }
 
         //PDF盖章(贴图)
-        private bool PDFWatermark(string inputfilepath, string outputfilepath, string sourcepath)
+        private bool PDFWatermark(string inputfilepath, string outputfilepath, string sourcepath, Action<int, int> pageProgress = null)
         {
             float sfbl = (100f * size * xzbl * 72) / (25.4f * imgYz.Width);
 
@@ -1173,6 +1205,7 @@ namespace PDFQFZ
                             ? null
                             : stampPlacements.ForPage(sourcepath, signpage).LastOrDefault();
 
+                        int placementDone = 0;
                         for (int page = 1; page <= numberOfPages; page++)
                         {
                             List<StampPlacement> pagePlacements = stampPlacements.ForPage(sourcepath, page).ToList();
@@ -1180,6 +1213,7 @@ namespace PDFQFZ
                             {
                                 continue;
                             }
+                            placementDone++;
 
                             waterMarkContent = pdfStamper.GetOverContent(page);
                             int pageRotation = pdfReader.GetPageRotation(page);
@@ -1227,6 +1261,11 @@ namespace PDFQFZ
                                         waterMarkContent.AddImage(placementImage);
                                     }
                                 }
+                            }
+
+                            if (pageProgress != null)
+                            {
+                                pageProgress(placementDone, placementPages.Count);
                             }
                         }
                     }
@@ -1931,6 +1970,215 @@ namespace PDFQFZ
             stampPlacements.Add(previewPath, imgStartPage, px, py, selectedStampPath, sizeMm,
                 currentOpacity, currentRotation, whiteTolerance, useWhiteTransparency,
                 useOriginalRotationCrop);
+        }
+
+        //文字预盖章：搜索指定文字，把所有匹配位置的印章中心对准文字中心并放置到预览。
+        private void AutoStampButton_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(previewPath) || !File.Exists(previewPath))
+                {
+                    MessageBox.Show("请先加载 PDF 文件再预盖章。");
+                    return;
+                }
+
+                if (comboBoxYz.SelectedValue == null)
+                {
+                    MessageBox.Show("请先选择印章图片。");
+                    return;
+                }
+
+                string stampPath = comboBoxYz.SelectedValue.ToString();
+                if (!File.Exists(stampPath))
+                {
+                    MessageBox.Show("印章图片不存在，请重新选择。");
+                    return;
+                }
+
+                string keyword = autoStampInput != null ? autoStampInput.Text.Trim() : string.Empty;
+                if (keyword.Length == 0)
+                {
+                    MessageBox.Show("请输入要识别的盖章文字。");
+                    return;
+                }
+
+                List<PdfTextMatch> matches;
+                using (PdfTextSearcher searcher = new PdfTextSearcher(previewPath))
+                {
+                    // 整个文档没有文字层（扫描件/纯图片）→ 图片型 PDF，无法搜索文字
+                    if (!searcher.HasAnyText())
+                    {
+                        MessageBox.Show("图片型 PDF 无法搜索到文字，无法放置印章");
+                        return;
+                    }
+
+                    matches = searcher.FindAll(keyword);
+                }
+
+                if (matches == null || matches.Count == 0)
+                {
+                    MessageBox.Show("没找到您指定的盖章文字");
+                    return;
+                }
+
+                // 方案A：放置前先清掉上一次自动批，避免连续点击导致同一位置叠加多个章
+                if (lastAutoStampBatchId > 0)
+                {
+                    stampPlacements.RemoveBatch(previewPath, lastAutoStampBatchId);
+                    lastAutoStampBatchId = 0;
+                }
+
+                int batchId = stampPlacements.CreateBatchId();
+                int sizeMm = GetPreviewSizeValue();
+                int currentOpacity = GetPreviewOpacityValue();
+                int currentRotation = GetPreviewRotationValue();
+                int whiteTolerance = GetWhiteTransparencyTolerance();
+                bool useWhiteTransparency = cbxTransColor.Checked;
+                bool useOriginalRotationCrop = qbflag == 0;
+
+                Size overlaySize = GetCurrentPreviewOverlaySize();
+                int previewW = Math.Max(1, pictureBox1.Width);
+                int previewH = Math.Max(1, pictureBox1.Height);
+                float ratioW = 1f * overlaySize.Width / previewW;
+                float ratioH = 1f * overlaySize.Height / previewH;
+
+                foreach (PdfTextMatch match in matches)
+                {
+                    AutoStampPositionResult pos = AutoStampPositionCalculator.Calculate(
+                        match.CenterX, match.CenterY, match.PageWidth, match.PageHeight, ratioW, ratioH);
+                    stampPlacements.Add(previewPath, match.PageIndex + 1, pos.Px, pos.Py, stampPath, sizeMm,
+                        currentOpacity, currentRotation, whiteTolerance, useWhiteTransparency,
+                        useOriginalRotationCrop, batchId);
+                }
+
+                lastAutoStampBatchId = batchId;
+                if (undoAutoStampButton != null)
+                {
+                    undoAutoStampButton.Enabled = true;
+                }
+
+                // 记入历史，方便下次点击输入框时选择
+                RecordAutoStampKeyword(keyword);
+
+                RefreshPreviewOverlays();
+                SetOperationHint(string.Format(
+                    "按文字盖章完成：共找到 {0} 处“{1}”，已全部盖上。双击单个章可删除，或点击“取消上一次”撤销本批。",
+                    matches.Count, keyword));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("预盖章失败：" + ex.Message);
+            }
+        }
+
+        //取消上一次预盖章：撤销本批自动放置的印章。
+        private void UndoAutoStampButton_Click(object sender, EventArgs e)
+        {
+            if (lastAutoStampBatchId <= 0)
+            {
+                return;
+            }
+
+            int removed = stampPlacements.RemoveBatch(previewPath, lastAutoStampBatchId);
+            lastAutoStampBatchId = 0;
+            if (undoAutoStampButton != null)
+            {
+                undoAutoStampButton.Enabled = false;
+            }
+
+            RefreshPreviewOverlays();
+            SetOperationHint("已取消上一次放置的印章，共移除 " + removed + " 个。");
+        }
+
+        // ---------- 按文字盖章：历史记忆与下拉选择 ----------
+
+        /// <summary>读取已保存的盖章文字历史（最新在前）。</summary>
+        private List<string> LoadAutoStampHistory()
+        {
+            List<string> result = new List<string>();
+            try
+            {
+                IniFileHelper iniFileHelper = new IniFileHelper(strIniFilePath);
+                string raw = iniFileHelper.ContentValue(section, AutoStampHistoryIniKey);
+                if (string.IsNullOrWhiteSpace(raw))
+                {
+                    return result;
+                }
+
+                foreach (string item in raw.Split(new[] { AutoStampHistorySeparator }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string text = item.Trim();
+                    if (text.Length > 0)
+                    {
+                        result.Add(text);
+                    }
+                }
+            }
+            catch
+            {
+                // 读取失败时返回空列表，不影响使用
+            }
+
+            return result;
+        }
+
+        /// <summary>保存盖章文字历史到配置文件。</summary>
+        private void SaveAutoStampHistory(List<string> history)
+        {
+            try
+            {
+                IniFileHelper iniFileHelper = new IniFileHelper(strIniFilePath);
+                iniFileHelper.WriteIniString(section, AutoStampHistoryIniKey, string.Join(AutoStampHistorySeparator, history));
+            }
+            catch
+            {
+                // 保存失败不影响主流程
+            }
+        }
+
+        /// <summary>记录一条盖章文字（最新在前、去重、最多保留 10 条）。</summary>
+        private void RecordAutoStampKeyword(string keyword)
+        {
+            if (string.IsNullOrWhiteSpace(keyword))
+            {
+                return;
+            }
+
+            List<string> history = LoadAutoStampHistory();
+            history.RemoveAll(x => string.Equals(x, keyword, StringComparison.Ordinal));
+            history.Insert(0, keyword.Trim());
+            if (history.Count > MaxAutoStampHistory)
+            {
+                history.RemoveRange(MaxAutoStampHistory, history.Count - MaxAutoStampHistory);
+            }
+            SaveAutoStampHistory(history);
+        }
+
+        /// <summary>从历史中删除一条盖章文字。</summary>
+        private void DeleteAutoStampKeyword(string keyword)
+        {
+            List<string> history = LoadAutoStampHistory();
+            int removed = history.RemoveAll(x => string.Equals(x, keyword, StringComparison.Ordinal));
+            if (removed > 0)
+            {
+                SaveAutoStampHistory(history);
+            }
+        }
+
+        /// <summary>程序启动时预填上一次输入过的盖章文字。</summary>
+        private void InitAutoStampHistoryOnLoad()
+        {
+            if (autoStampInput == null)
+            {
+                return;
+            }
+
+            List<string> history = LoadAutoStampHistory();
+            if (history.Count > 0)
+            {
+                autoStampInput.SetText(history[0]);
+            }
         }
 
         //文件/目录模式切换

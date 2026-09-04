@@ -112,6 +112,9 @@
     <Compile Include="Library\PreviewValueSanitizer.cs" />
     <Compile Include="Library\WhiteTransparencyHelper.cs" />
     <Compile Include="Library\UiInteractionPolicies.cs" />
+    <Compile Include="Library\PdfTextSearcher.cs" />
+    <Compile Include="Library\AutoStampPositionCalculator.cs" />
+    <Compile Include="Library\HistoryInputControl.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <EmbeddedResource Include="Form1.resx">

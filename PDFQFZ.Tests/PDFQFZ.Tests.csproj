@@ -39,5 +39,7 @@
     <Compile Include="..\PDFQFZ\Library\PreviewValueSanitizer.cs" Link="PreviewValueSanitizer.cs" />
     <Compile Include="..\PDFQFZ\Library\WhiteTransparencyHelper.cs" Link="WhiteTransparencyHelper.cs" />
     <Compile Include="..\PDFQFZ\Library\UiInteractionPolicies.cs" Link="UiInteractionPolicies.cs" />
+    <Compile Include="..\PDFQFZ\Library\PdfTextSearcher.cs" Link="PdfTextSearcher.cs" />
+    <Compile Include="..\PDFQFZ\Library\AutoStampPositionCalculator.cs" Link="AutoStampPositionCalculator.cs" />
   </ItemGroup>
 </Project>

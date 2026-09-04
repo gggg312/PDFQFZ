@@ -85,7 +85,7 @@ namespace PDFQFZ
         {
             SuspendLayout();
 
-            Text = "PDF盖页面章与骑缝章工具 （V1.2.1  GG优化版）";
+            Text = "PDF盖页面章与骑缝章工具 （V1.3.0  GG优化版）";
             FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = true;
             StartPosition = FormStartPosition.CenterScreen;
@@ -293,6 +293,71 @@ namespace PDFQFZ
                 CreateModeRadio("叠加（盖章浮于页面）", 0, outputModeRadios)
             }), 2, 0);
             section.Controls.Add(groups, 1, 0);
+
+            // 按文字盖章：输入文字 → 自动定位并把印章中心对准文字放置到预览。
+            // 第一行：标签 + 输入框 + 清除按钮（输入框占满剩余空间）；第二行：两个操作按钮。
+            section.RowCount = 4;
+            section.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            section.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            section.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            section.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            TableLayoutPanel autoInputRow = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                ColumnCount = 2,
+                RowCount = 1,
+                Margin = new Padding(0, 14, 0, 0),   // 与上方保持距离，突出独立功能块
+                Padding = new Padding(0)
+            };
+            autoInputRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            autoInputRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+
+            Label autoLabel = new Label
+            {
+                Text = "按文字盖章",
+                AutoSize = true,
+                Font = new Font(Font, FontStyle.Bold),   // 与"骑缝章""页面盖章"等标签样式一致
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0, 3, 6, 0)
+            };
+
+            autoStampInput = new HistoryInputControl
+            {
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 2, 0, 0)
+            };
+            autoStampInput.HistoryProvider = LoadAutoStampHistory;
+            autoStampInput.HistoryDelete = DeleteAutoStampKeyword;
+
+            autoInputRow.Controls.Add(autoLabel, 0, 0);
+            autoInputRow.Controls.Add(autoStampInput, 1, 0);
+            section.Controls.Add(autoInputRow, 1, 2);
+
+            FlowLayoutPanel autoButtonRow = CreateFlowRow();
+            autoButtonRow.Margin = new Padding(0, 6, 0, 0);
+
+            autoStampButton = new Button
+            {
+                Text = "按文字放置印章",
+                AutoSize = true,
+                Margin = new Padding(0, 2, 6, 0)
+            };
+            autoStampButton.Click += AutoStampButton_Click;
+
+            undoAutoStampButton = new Button
+            {
+                Text = "取消上一次放置",
+                AutoSize = true,
+                Margin = new Padding(0, 2, 0, 0),
+                Enabled = false
+            };
+            undoAutoStampButton.Click += UndoAutoStampButton_Click;
+
+            autoButtonRow.Controls.Add(autoStampButton);
+            autoButtonRow.Controls.Add(undoAutoStampButton);
+            section.Controls.Add(autoButtonRow, 1, 3);
             return section;
         }
 
@@ -387,7 +452,7 @@ namespace PDFQFZ
                 RowCount = 4
             };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36F));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60F));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             border.Controls.Add(layout);
@@ -406,7 +471,8 @@ namespace PDFQFZ
                 Padding = new Padding(12, 0, 12, 0),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0, 5, 0, 5),
-                AutoEllipsis = true
+                AutoEllipsis = false,   // 允许换行，长提示完整显示两行
+                AutoSize = false
             };
             layout.Controls.Add(operationHint, 0, 1);
 
