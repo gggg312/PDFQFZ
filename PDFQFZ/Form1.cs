@@ -116,11 +116,12 @@ namespace PDFQFZ
         private int activeSpecifiedBatchId;
         private int lastCommittedYzType;
         private bool suppressYzSelectionChange;
-        // 保存阶段的不确定进度提示：操作提示区两行文字动画（省略号增减）+ 实时计时
+        // 保存/生成阶段的不确定进度提示：操作提示区两行文字动画（省略号增减）+ 实时计时
         private DateTime savingStartTime;
         private volatile bool savingIndicatorActive;
         private int savingDotPhase;
         private DateTime lastSavingTick;
+        private string savingStage = "正在保存中";
 
         public Form1(string[] args)
         {
@@ -733,11 +734,13 @@ namespace PDFQFZ
                         }
                         if (isSurrcess)
                         {
+                            StopSavingIndicator();
                             AppendLog(OutputFileNamingPolicy.BuildSuccessMessage(fileInfo.Name, output) + "\r\n");
                             SaveSuccessfulStampConfig();
                         }
                         else
                         {
+                            StopSavingIndicator();
                             hasFailures = true;
                             AppendLog("失败！“" + fileInfo.Name + "”盖章失败！\r\n");
                         }
@@ -777,11 +780,13 @@ namespace PDFQFZ
                                     actualOutput = jmoutput;
                                 }
                             }
+                            StopSavingIndicator();
                             AppendLog(OutputFileNamingPolicy.BuildSuccessMessage(filename, actualOutput) + "\r\n");
                             SaveSuccessfulStampConfig();
                         }
                         else
                         {
+                            StopSavingIndicator();
                             hasFailures = true;
                             AppendLog("失败！“" + filename + "”盖章失败！\r\n");
                         }
@@ -866,16 +871,35 @@ namespace PDFQFZ
                 savingStartTime = DateTime.Now;
                 savingDotPhase = 0;
                 lastSavingTick = DateTime.MinValue;
+                savingStage = "正在保存中";
                 // 界面空闲事件驱动操作提示区的动态文字刷新（纯 UI 线程，无需后台任务）
                 Application.Idle += OnSavingIdle;
                 UpdateSavingIndicatorTick();
             }
             else
             {
-                savingIndicatorActive = false;
-                Application.Idle -= OnSavingIdle;
-                SetOperationHint("文件保存完成！");
+                // 保存（写回文件）阶段结束，但后续还有合并转图/加密等处理，
+                // 动画继续、切换文案，避免提前显示“完成”
+                savingStage = "正在生成文件";
+                UpdateSavingIndicatorTick();
             }
+        }
+
+        /// <summary>
+        /// 所有处理全部完成后停止动画并恢复操作提示区默认说明。
+        /// 完成与否以左侧提示区显示的“盖章成功”日志为准。
+        /// </summary>
+        private void StopSavingIndicator()
+        {
+            if (this.InvokeRequired)
+            {
+                this.BeginInvoke(new Action(StopSavingIndicator));
+                return;
+            }
+
+            savingIndicatorActive = false;
+            Application.Idle -= OnSavingIdle;
+            UpdatePlacementOperationHint();
         }
 
         /// <summary>
@@ -911,8 +935,8 @@ namespace PDFQFZ
             savingDotPhase = (savingDotPhase + 1) % 8;
             int dotCount = 3 + (savingDotPhase < 4 ? savingDotPhase : 7 - savingDotPhase);
             TimeSpan elapsed = DateTime.Now - savingStartTime;
-            SetOperationHint(string.Format("正在保存中{0}\r\n已用时 {1:mm\\:ss}",
-                new string('.', dotCount), elapsed));
+            SetOperationHint(string.Format("{0}{1}\r\n已用时 {2:mm\\:ss}",
+                savingStage, new string('.', dotCount), elapsed));
         }
 
         /// <summary>
