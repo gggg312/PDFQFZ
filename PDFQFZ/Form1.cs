@@ -1,4 +1,4 @@
-﻿using iTextSharp.text;
+using iTextSharp.text;
 using iTextSharp.text.exceptions;
 using iTextSharp.text.pdf;
 using iTextSharp.text.pdf.security;
@@ -720,7 +720,8 @@ namespace PDFQFZ
                             fixType == 1);
                         UpdateStampProgress(done, total, fileInfo.Name);
                         bool isSurrcess = PDFWatermark(source, output, source,
-                            (d, t) => UpdateStampPageProgress(d, t, fileInfo.Name));
+                            (d, t) => UpdateStampPageProgress(d, t, fileInfo.Name),
+                            msg => SetOperationHint(msg));
                         if (isSurrcess && djType == 1)
                         {
                             PDFToiPDF(output);
@@ -754,7 +755,8 @@ namespace PDFQFZ
                         string actualOutput = output;
                         UpdateStampProgress(done, total, filename);
                         bool isSurrcess = PDFWatermark(file, output, file,
-                            (d, t) => UpdateStampPageProgress(d, t, filename));
+                            (d, t) => UpdateStampPageProgress(d, t, filename),
+                            msg => SetOperationHint(msg));
                         if (isSurrcess)
                         {
                             if (djType == 1)
@@ -1077,7 +1079,7 @@ namespace PDFQFZ
         }
 
         //PDF盖章(贴图)
-        private bool PDFWatermark(string inputfilepath, string outputfilepath, string sourcepath, Action<int, int> pageProgress = null)
+        private bool PDFWatermark(string inputfilepath, string outputfilepath, string sourcepath, Action<int, int> pageProgress = null, Action<string> statusMessage = null)
         {
             float sfbl = (100f * size * xzbl * 72) / (25.4f * imgYz.Width);
 
@@ -1397,6 +1399,11 @@ namespace PDFQFZ
             }
             finally
             {
+                // 保存阶段：iTextSharp 在 Close 时才把改动写回整个文件，大文件较耗时，先提示用户
+                if (statusMessage != null)
+                {
+                    statusMessage("正在保存文件，请稍候...");
+                }
 
                 if (pdfStamper != null)
                     pdfStamper.Close();
