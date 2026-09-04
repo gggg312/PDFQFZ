@@ -1234,8 +1234,15 @@ namespace PDFQFZ
                             : stampPlacements.ForPage(sourcepath, signpage).LastOrDefault();
 
                         int placementDone = 0;
+                        int totalProcessPages = numberOfPages;
                         for (int page = 1; page <= numberOfPages; page++)
                         {
+                            // 每遍历一页都推进进度（含无章页），让进度反映整个文件的真实处理进程
+                            if (pageProgress != null)
+                            {
+                                pageProgress(Math.Min(page, totalProcessPages), totalProcessPages);
+                            }
+
                             List<StampPlacement> pagePlacements = stampPlacements.ForPage(sourcepath, page).ToList();
                             if (pagePlacements.Count == 0)
                             {
@@ -1289,11 +1296,6 @@ namespace PDFQFZ
                                         waterMarkContent.AddImage(placementImage);
                                     }
                                 }
-                            }
-
-                            if (pageProgress != null)
-                            {
-                                pageProgress(placementDone, placementPages.Count);
                             }
                         }
                     }
