@@ -98,8 +98,8 @@ namespace PDFQFZ
         HistoryInputControl autoStampInput = null;
         System.Windows.Forms.Button autoStampButton = null;
         System.Windows.Forms.Button undoAutoStampButton = null;
-        int lastAutoStampBatchId = 0;
-        string lastAutoStampKeyword = null;
+        // 按文字放置操作栈（用于"撤销放置"逐步撤销）；每个操作记录关键词与批次
+        private readonly List<AutoStampOperation> autoStampOperations = new List<AutoStampOperation>();
 
         //按文字盖章历史记忆相关
         const string AutoStampHistoryIniKey = "autoStampHistory";
@@ -2026,14 +2026,24 @@ namespace PDFQFZ
                     return;
                 }
 
-                // 相同文字再次放置时：先清掉上一次自动批，避免同一位置叠加多个章（不同文字则保留各自的章）
-                if (lastAutoStampBatchId > 0
-                    && !string.IsNullOrEmpty(lastAutoStampKeyword)
-                    && string.Equals(lastAutoStampKeyword, keyword, StringComparison.Ordinal))
+                // 相同文字已放置过 → 弹窗确认是否重新放置（确认后撤销旧批、按最新参数重盖；不同文字则各自保留）
+                AutoStampOperation existingOp = autoStampOperations.LastOrDefault(
+                    o => string.Equals(o.Keyword, keyword, StringComparison.Ordinal));
+                if (existingOp != null)
                 {
-                    stampPlacements.RemoveBatch(previewPath, lastAutoStampBatchId);
-                    lastAutoStampBatchId = 0;
-                    lastAutoStampKeyword = null;
+                    DialogResult confirm = MessageBox.Show(
+                        string.Format("已用“{0}”放置过印章，是否重新放置？", keyword),
+                        "重新放置",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+                    if (confirm != DialogResult.Yes)
+                    {
+                        SetOperationHint("已取消重新放置，保留原有印章。");
+                        return;
+                    }
+
+                    stampPlacements.RemoveBatch(previewPath, existingOp.BatchId);
+                    autoStampOperations.Remove(existingOp);
                 }
 
                 int batchId = stampPlacements.CreateBatchId();
@@ -2059,8 +2069,7 @@ namespace PDFQFZ
                         useOriginalRotationCrop, batchId);
                 }
 
-                lastAutoStampBatchId = batchId;
-                lastAutoStampKeyword = keyword;
+                autoStampOperations.Add(new AutoStampOperation { Keyword = keyword, BatchId = batchId });
                 if (undoAutoStampButton != null)
                 {
                     undoAutoStampButton.Enabled = true;
@@ -2068,7 +2077,7 @@ namespace PDFQFZ
 
                 RefreshPreviewOverlays();
                 SetOperationHint(string.Format(
-                    "按文字盖章完成：共找到 {0} 处“{1}”，已全部盖上。双击单个章可删除，或点击“取消上一次”撤销本批。",
+                    "按文字盖章完成：共找到 {0} 处“{1}”，已全部盖上。双击单个章可删除，或点击“撤销放置”逐步撤销。",
                     matches.Count, keyword));
             }
             catch (Exception ex)
@@ -2077,24 +2086,39 @@ namespace PDFQFZ
             }
         }
 
-        //取消上一次预盖章：撤销本批自动放置的印章。
+        // 撤销放置：像 Word 撤销一样，点击一次撤销最近一次"按文字放置"，再点撤销更早一次，直到全部撤销完。
         private void UndoAutoStampButton_Click(object sender, EventArgs e)
         {
-            if (lastAutoStampBatchId <= 0)
+            if (autoStampOperations.Count == 0)
             {
                 return;
             }
 
-            int removed = stampPlacements.RemoveBatch(previewPath, lastAutoStampBatchId);
-            lastAutoStampBatchId = 0;
-            lastAutoStampKeyword = null;
+            AutoStampOperation op = autoStampOperations[autoStampOperations.Count - 1];
+            autoStampOperations.RemoveAt(autoStampOperations.Count - 1);
+
+            int removed = stampPlacements.RemoveBatch(previewPath, op.BatchId);
             if (undoAutoStampButton != null)
             {
-                undoAutoStampButton.Enabled = false;
+                undoAutoStampButton.Enabled = autoStampOperations.Count > 0;
             }
 
             RefreshPreviewOverlays();
-            SetOperationHint("已取消上一次放置的印章，共移除 " + removed + " 个。");
+            if (removed > 0)
+            {
+                SetOperationHint(string.Format("已撤销放置：“{0}”的印章已移除（{1} 个）。", op.Keyword, removed));
+            }
+            else
+            {
+                SetOperationHint(string.Format("已撤销放置：“{0}”（原印章已不存在）。", op.Keyword));
+            }
+        }
+
+        // 按文字放置的一次操作记录（用于逐步撤销）
+        private sealed class AutoStampOperation
+        {
+            public string Keyword;
+            public int BatchId;
         }
 
         // ---------- 按文字盖章：历史记忆与下拉选择 ----------
@@ -2335,6 +2359,16 @@ namespace PDFQFZ
 
             if (removed)
             {
+                // 若删除后该"按文字"批次已无残留，从撤销栈移除对应操作，避免"撤销放置"撤销到不存在的批次
+                if (placement.BatchId > 0 && !stampPlacements.HasBatch(previewPath, placement.BatchId))
+                {
+                    autoStampOperations.RemoveAll(o => o.BatchId == placement.BatchId);
+                    if (undoAutoStampButton != null)
+                    {
+                        undoAutoStampButton.Enabled = autoStampOperations.Count > 0;
+                    }
+                }
+
                 RefreshPreviewOverlays();
             }
         }
@@ -2614,6 +2648,12 @@ namespace PDFQFZ
             previewPath = "";
             dtPages.Rows.Clear();
             stampPlacements.Clear();
+            autoStampOperations.Clear();
+            if (undoAutoStampButton != null)
+            {
+                undoAutoStampButton.Enabled = false;
+            }
+
             specifiedPageRange = null;
             specifiedRangeFirstClickPending = false;
             activeSpecifiedBatchId = 0;

@@ -45,6 +45,7 @@ namespace PDFQFZ.Library
                 FlatStyle = FlatStyle.Standard             // 系统原生 3D 边框，与普通输入框一致
             };
             combo.DrawItem += Combo_DrawItem;
+            combo.MouseDown += Combo_MouseDown;
             combo.MouseUp += Combo_MouseUp;
             combo.DropDown += (s, e) => RebuildItems();
             combo.TextChanged += (s, e) => TextContentChanged?.Invoke(this, EventArgs.Empty);
@@ -137,37 +138,68 @@ namespace PDFQFZ.Library
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
 
-        private void Combo_MouseUp(object sender, MouseEventArgs e)
+        private bool deleteClickPending;
+        private string pendingText;
+
+        // 点击展开列表中的项，需在 MouseDown 阶段判断删除区：
+        // 若点在"×"上则删除该条历史，并阻止系统把该行内容填入输入框。
+        private void Combo_MouseDown(object sender, MouseEventArgs e)
         {
             if (!combo.DroppedDown)
             {
                 return;
             }
 
-            // 点击位置换算到展开列表中的项：列表从下拉框底部开始展开
-            int top = combo.Height + 1;
-            int idx = (e.Y - top) / Math.Max(1, combo.ItemHeight);
+            int idx = HitTestItem(e.Location);
             if (idx < 0 || idx >= combo.Items.Count)
             {
                 return;
             }
 
-            Rectangle itemRect = new Rectangle(0, top + idx * combo.ItemHeight, combo.Width, combo.ItemHeight);
+            Rectangle itemRect = new Rectangle(0, combo.ClientSize.Height + 1 + idx * combo.ItemHeight, combo.Width, combo.ItemHeight);
             Rectangle delRect = GetDeleteRect(itemRect);
-            delRect.Inflate(2, 2);
+            delRect.Inflate(3, 3);
             if (!delRect.Contains(e.Location))
             {
                 return;
             }
 
+            // 点击删除区：删除该条历史，并还原输入框文字（删除不应改变输入框内容）
             string keyword = combo.Items[idx].ToString();
+            string current = combo.Text;
             HistoryDelete?.Invoke(keyword);
+            deleteClickPending = true;
+            pendingText = current;
             RebuildItems();
-            // 删除后保持下拉展开，方便继续删除
-            if (!combo.DroppedDown)
+            combo.SelectedIndex = -1;
+            combo.Text = current;
+        }
+
+        private void Combo_MouseUp(object sender, MouseEventArgs e)
+        {
+            if (!deleteClickPending)
+            {
+                return;
+            }
+
+            deleteClickPending = false;
+            // 兜底：系统可能在点击时把被点项填入了输入框，这里还原为点击前的文字
+            if (!string.Equals(combo.Text, pendingText, StringComparison.Ordinal))
+            {
+                combo.Text = pendingText;
+            }
+
+            // 保持下拉展开，方便连续删除多条
+            if (!combo.DroppedDown && combo.Items.Count > 0)
             {
                 combo.DroppedDown = true;
             }
+        }
+
+        private int HitTestItem(Point location)
+        {
+            int top = combo.ClientSize.Height + 1;
+            return (location.Y - top) / Math.Max(1, combo.ItemHeight);
         }
 
         private static Rectangle GetDeleteRect(Rectangle r)

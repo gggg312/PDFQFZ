@@ -140,6 +140,19 @@ namespace PDFQFZ.Library
                 item.BatchId == batchId);
         }
 
+        /// <summary>指定文档中该批次是否仍存在印章。</summary>
+        public bool HasBatch(string documentPath, int batchId)
+        {
+            if (batchId <= 0)
+            {
+                return false;
+            }
+
+            return placements.Any(item =>
+                string.Equals(item.DocumentPath, documentPath, StringComparison.OrdinalIgnoreCase) &&
+                item.BatchId == batchId);
+        }
+
         public int CreateBatchId()
         {
             return nextId++;

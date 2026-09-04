@@ -348,7 +348,7 @@ namespace PDFQFZ
 
             undoAutoStampButton = new Button
             {
-                Text = "取消上一次放置",
+                Text = "撤销放置",
                 AutoSize = true,
                 Margin = new Padding(0, 2, 0, 0),
                 Enabled = false
