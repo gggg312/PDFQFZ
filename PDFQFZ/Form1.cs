@@ -121,7 +121,6 @@ namespace PDFQFZ
         private volatile bool savingIndicatorActive;
         private int savingDotPhase;
         private DateTime lastSavingTick;
-        private string savingStage = "正在保存中";
 
         public Form1(string[] args)
         {
@@ -871,7 +870,6 @@ namespace PDFQFZ
                 savingStartTime = DateTime.Now;
                 savingDotPhase = 0;
                 lastSavingTick = DateTime.MinValue;
-                savingStage = "正在保存中";
                 // 界面空闲事件驱动操作提示区的动态文字刷新（纯 UI 线程，无需后台任务）
                 Application.Idle += OnSavingIdle;
                 UpdateSavingIndicatorTick();
@@ -879,8 +877,7 @@ namespace PDFQFZ
             else
             {
                 // 保存（写回文件）阶段结束，但后续还有合并转图/加密等处理，
-                // 动画继续、切换文案，避免提前显示“完成”
-                savingStage = "正在生成文件";
+                // 动画继续，避免提前显示“完成”
                 UpdateSavingIndicatorTick();
             }
         }
@@ -935,8 +932,8 @@ namespace PDFQFZ
             savingDotPhase = (savingDotPhase + 1) % 8;
             int dotCount = 3 + (savingDotPhase < 4 ? savingDotPhase : 7 - savingDotPhase);
             TimeSpan elapsed = DateTime.Now - savingStartTime;
-            SetOperationHint(string.Format("{0}{1}\r\n已用时 {2:mm\\:ss}",
-                savingStage, new string('.', dotCount), elapsed));
+            SetOperationHint(string.Format("本文件较大，请耐心等待，正在生成盖章文件中{0}\r\n已用时 {1:mm\\:ss}",
+                new string('.', dotCount), elapsed));
         }
 
         /// <summary>
