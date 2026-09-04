@@ -116,11 +116,10 @@ namespace PDFQFZ
         private int activeSpecifiedBatchId;
         private int lastCommittedYzType;
         private bool suppressYzSelectionChange;
-        // 保存阶段的不确定进度提示：提示区框内两行文字动画（省略号增减）+ 实时计时，不改变框的布局位置
+        // 保存阶段的不确定进度提示：操作提示区两行文字动画（省略号增减）+ 实时计时
         private DateTime savingStartTime;
         private volatile bool savingIndicatorActive;
         private int savingDotPhase;
-        private string savingStatusOriginalLog;
         private DateTime lastSavingTick;
 
         public Form1(string[] args)
@@ -867,8 +866,7 @@ namespace PDFQFZ
                 savingStartTime = DateTime.Now;
                 savingDotPhase = 0;
                 lastSavingTick = DateTime.MinValue;
-                savingStatusOriginalLog = log.Text;
-                // 界面空闲事件驱动文字刷新（纯 UI 线程，无需后台任务）
+                // 界面空闲事件驱动操作提示区的动态文字刷新（纯 UI 线程，无需后台任务）
                 Application.Idle += OnSavingIdle;
                 UpdateSavingIndicatorTick();
             }
@@ -876,12 +874,12 @@ namespace PDFQFZ
             {
                 savingIndicatorActive = false;
                 Application.Idle -= OnSavingIdle;
-                log.Text = savingStatusOriginalLog;
+                SetOperationHint("文件保存完成！");
             }
         }
 
         /// <summary>
-        /// 界面空闲时刷新保存文字（UI 线程）：每 300ms 更新一次，省略号增减 + 计时递增
+        /// 界面空闲时刷新操作提示区保存文字（UI 线程）：每 300ms 更新一次，省略号增减 + 计时递增
         /// </summary>
         private void OnSavingIdle(object sender, EventArgs e)
         {
@@ -913,8 +911,8 @@ namespace PDFQFZ
             savingDotPhase = (savingDotPhase + 1) % 8;
             int dotCount = 3 + (savingDotPhase < 4 ? savingDotPhase : 7 - savingDotPhase);
             TimeSpan elapsed = DateTime.Now - savingStartTime;
-            log.Text = string.Format("正在保存中{0}\r\n已用时 {1:mm\\:ss}",
-                new string('.', dotCount), elapsed);
+            SetOperationHint(string.Format("正在保存中{0}\r\n已用时 {1:mm\\:ss}",
+                new string('.', dotCount), elapsed));
         }
 
         /// <summary>
