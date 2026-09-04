@@ -12,11 +12,15 @@ namespace PDFQFZ.Library
     /// - 控件本体是系统原生样式，与普通输入框外观一致
     /// - 展开历史时，输入框内依然可以打字、删字（系统原生行为）
     /// - 下拉列表为系统原生展开，自动支持滚动、键盘选择、Esc/点击外部关闭
-    /// - 每条历史右侧带轻量的系统文字"×"删除按钮（OwnerDraw 绘制，外观仍是原生下拉）
+    /// - 每条历史右侧带轻量的系统文字"×"删除按钮；鼠标移到"×"上会变色提示可点击，点击即删除该条
     /// </summary>
     public sealed class HistoryInputControl : UserControl
     {
         private readonly ComboBox combo;
+
+        // 当前鼠标悬停状态（用于"×"hover 变色）
+        private int hoverItem = -1;
+        private bool hoverDelete;
 
         /// <summary>读取历史列表（最新在前）的委托。</summary>
         public Func<IEnumerable<string>> HistoryProvider { get; set; }
@@ -45,6 +49,8 @@ namespace PDFQFZ.Library
                 FlatStyle = FlatStyle.Standard             // 系统原生 3D 边框，与普通输入框一致
             };
             combo.DrawItem += Combo_DrawItem;
+            combo.MouseMove += Combo_MouseMove;
+            combo.MouseLeave += Combo_MouseLeave;
             combo.MouseDown += Combo_MouseDown;
             combo.MouseUp += Combo_MouseUp;
             combo.DropDown += (s, e) => RebuildItems();
@@ -127,36 +133,94 @@ namespace PDFQFZ.Library
                 selected ? SystemColors.HighlightText : SystemColors.WindowText,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
 
-            // 右侧轻量删除叉：系统文字"×"，无底色，hover 时变亮
+            // 右侧轻量删除叉：系统文字"×"，无底色；鼠标移到叉上变深红色提示可点击
+            Color delColor;
+            if (e.Index == hoverItem && hoverDelete)
+            {
+                delColor = Color.FromArgb(211, 47, 47);          // 悬停在叉上：深红
+            }
+            else if (selected)
+            {
+                delColor = Color.FromArgb(235, 235, 235);        // 键盘选中的行：亮色
+            }
+            else
+            {
+                delColor = Color.FromArgb(150, 150, 150);        // 默认：浅灰
+            }
+
             Rectangle delRect = GetDeleteRect(r);
             TextRenderer.DrawText(
                 e.Graphics,
                 "×",
                 e.Font,
                 delRect,
-                selected ? Color.FromArgb(235, 235, 235) : Color.FromArgb(150, 150, 150),
+                delColor,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        }
+
+        private void Combo_MouseMove(object sender, MouseEventArgs e)
+        {
+            int item = -1;
+            bool onDelete = false;
+
+            if (combo.DroppedDown && e.Y > combo.ClientSize.Height)
+            {
+                int idx = (e.Y - (combo.ClientSize.Height + 1)) / Math.Max(1, combo.ItemHeight);
+                if (idx >= 0 && idx < combo.Items.Count)
+                {
+                    item = idx;
+                    Rectangle itemRect = new Rectangle(
+                        0,
+                        combo.ClientSize.Height + 1 + idx * combo.ItemHeight,
+                        combo.Width,
+                        combo.ItemHeight);
+                    onDelete = GetDeleteRect(itemRect).Contains(e.Location);
+                }
+            }
+
+            if (item != hoverItem || onDelete != hoverDelete)
+            {
+                hoverItem = item;
+                hoverDelete = onDelete;
+                combo.Invalidate();
+            }
+        }
+
+        private void Combo_MouseLeave(object sender, EventArgs e)
+        {
+            if (hoverItem != -1 || hoverDelete)
+            {
+                hoverItem = -1;
+                hoverDelete = false;
+                combo.Invalidate();
+            }
         }
 
         private bool deleteClickPending;
         private string pendingText;
 
-        // 点击展开列表中的项，需在 MouseDown 阶段判断删除区：
-        // 若点在"×"上则删除该条历史，并阻止系统把该行内容填入输入框。
+        // 点击展开列表中的项，在 MouseDown 阶段判断删除区：
+        // 注意：MouseDown 触发时 ComboBox 的下拉已被系统关闭（DroppedDown=false），
+        // 因此不能用 DroppedDown 判断，而是用坐标是否落在列表区（y 超过客户区高度）判断。
         private void Combo_MouseDown(object sender, MouseEventArgs e)
         {
-            if (!combo.DroppedDown)
+            // 编辑区内的点击不处理（让用户正常编辑文字）
+            if (e.Y <= combo.ClientSize.Height)
             {
                 return;
             }
 
-            int idx = HitTestItem(e.Location);
+            int idx = (e.Y - (combo.ClientSize.Height + 1)) / Math.Max(1, combo.ItemHeight);
             if (idx < 0 || idx >= combo.Items.Count)
             {
                 return;
             }
 
-            Rectangle itemRect = new Rectangle(0, combo.ClientSize.Height + 1 + idx * combo.ItemHeight, combo.Width, combo.ItemHeight);
+            Rectangle itemRect = new Rectangle(
+                0,
+                combo.ClientSize.Height + 1 + idx * combo.ItemHeight,
+                combo.Width,
+                combo.ItemHeight);
             Rectangle delRect = GetDeleteRect(itemRect);
             delRect.Inflate(3, 3);
             if (!delRect.Contains(e.Location))
@@ -184,6 +248,7 @@ namespace PDFQFZ.Library
 
             deleteClickPending = false;
             // 兜底：系统可能在点击时把被点项填入了输入框，这里还原为点击前的文字
+            combo.SelectedIndex = -1;
             if (!string.Equals(combo.Text, pendingText, StringComparison.Ordinal))
             {
                 combo.Text = pendingText;
@@ -194,12 +259,6 @@ namespace PDFQFZ.Library
             {
                 combo.DroppedDown = true;
             }
-        }
-
-        private int HitTestItem(Point location)
-        {
-            int top = combo.ClientSize.Height + 1;
-            return (location.Y - top) / Math.Max(1, combo.ItemHeight);
         }
 
         private static Rectangle GetDeleteRect(Rectangle r)
