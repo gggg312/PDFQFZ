@@ -458,10 +458,24 @@ namespace PDFQFZ
             qbflag = comboBoxQB.SelectedIndex;  //是否切边标记
             yzIndex = comboBoxYz.SelectedIndex; //选择的印章索引
 
-            if (qfzType == 1 && yzType == 0 && qmType == 0)
+            // 汇总本次是否有任何盖章操作（页面章 / 骑缝章 / 数字签名 / 预览中已放置的章）
+            bool wantsSeam = qfzType != 1;
+            bool wantsPage = yzType != 0;
+            bool wantsSignature = qmType != 0;
+            bool hasPreviewStamps = stampPlacements.Count > 0;
+
+            if (!wantsSeam && !wantsPage && !wantsSignature && !hasPreviewStamps)
             {
-                MessageBox.Show("请至少选择一种盖章方式：页面盖章、骑缝章或数字签名。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
+                // 没有任何盖章操作：确认后仍生成（用户可能只想要一个不盖章的合并/输出文件）
+                DialogResult choice = MessageBox.Show(
+                    "您没有进行任何盖章操作，确定要生成文件吗？",
+                    "确认生成",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+                if (choice != DialogResult.Yes)
+                {
+                    return;
+                }
             }
             else if (yzIndex == -1)
             {
@@ -472,7 +486,7 @@ namespace PDFQFZ
             {
                 sourcePath = pathText.Text;
                 outputPath = textBCpath.Text;
-                imgPath = comboBoxYz.SelectedValue.ToString();
+                imgPath = comboBoxYz.SelectedValue != null ? comboBoxYz.SelectedValue.ToString() : "";
                 signText = textname.Text;
                 password = textpass.Text;
                 pdfpassword = textpdfpass.Text;
@@ -592,6 +606,14 @@ namespace PDFQFZ
 
             try
             {
+                // 没有任何盖章操作且未选择印章时：用占位图片走"仅输出文件"流程（不会实际盖章）
+                if (qfzType == 1 && yzType == 0 && qmType == 0 && stampPlacements.Count == 0
+                    && (string.IsNullOrEmpty(imgPath) || !File.Exists(imgPath)))
+                {
+                    imgYz = new Bitmap(1, 1);
+                    return true;
+                }
+
                 //如果要数字签名,先判断证书能否正常加载
                 if (qmType != 0)
                 {
