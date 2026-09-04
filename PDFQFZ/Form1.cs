@@ -2525,6 +2525,13 @@ namespace PDFQFZ
             cts = new CancellationTokenSource();
             ResetPreviewSessionState();
             dtPages.Rows.Clear();
+            // 切换到新的源文件：清空上一份文档放置的章与撤销栈，预览从空白开始
+            stampPlacements.Clear();
+            autoStampOperations.Clear();
+            if (undoAutoStampButton != null)
+            {
+                undoAutoStampButton.Enabled = false;
+            }
             specifiedPageRange = null;
             specifiedRangeFirstClickPending = false;
             activeSpecifiedBatchId = 0;
