@@ -133,7 +133,7 @@ namespace PDFQFZ
             {
                 Dock = DockStyle.Fill,
                 AutoScroll = true,
-                Padding = new Padding(12, 9, 12, 10),
+                Padding = new Padding(12, 9, 12, 24),
                 ColumnCount = 1,
                 RowCount = 5
             };
@@ -162,10 +162,11 @@ namespace PDFQFZ
             layout.Controls.Add(actionPanel, 0, 3);
 
             log.Dock = DockStyle.Fill;
-            log.Margin = new Padding(0, 0, 12, 0);
+            log.Margin = new Padding(0, 0, 12, 18);
             log.ScrollBars = ScrollBars.Vertical;
             log.WordWrap = true;
-            log.MinimumSize = new Size(0, 220);
+            log.MinimumSize = new Size(0, 150);
+            log.MaximumSize = new Size(0, 320);
             layout.Controls.Add(log, 0, 4);
         }
 

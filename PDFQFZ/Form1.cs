@@ -2550,6 +2550,9 @@ namespace PDFQFZ
             specifiedPageRange = null;
             specifiedRangeFirstClickPending = false;
             activeSpecifiedBatchId = 0;
+            // 切换到新的源文件：提示区恢复初始说明，不再显示上一份文件的输出记录
+            log.Text = InitialHelpText;
+            logContainsOnlyHelp = true;
             previewPath = comboPDFlist.SelectedValue == null ? "" : comboPDFlist.SelectedValue.ToString();
             ClearPreviewResources();
 
