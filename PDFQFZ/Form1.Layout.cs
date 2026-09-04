@@ -162,11 +162,10 @@ namespace PDFQFZ
             layout.Controls.Add(actionPanel, 0, 3);
 
             log.Dock = DockStyle.Fill;
-            log.Margin = new Padding(0, 0, 12, 18);
+            log.Margin = new Padding(0, 0, 20, 18);
             log.ScrollBars = ScrollBars.Vertical;
             log.WordWrap = true;
             log.MinimumSize = new Size(0, 150);
-            log.MaximumSize = new Size(0, 320);
             layout.Controls.Add(log, 0, 4);
         }
 
