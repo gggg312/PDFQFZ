@@ -329,7 +329,6 @@ namespace PDFQFZ
                 Margin = new Padding(0, 2, 14, 0)   // 右侧留白，与其他输入框右边界对齐
             };
             autoStampInput.HistoryProvider = LoadAutoStampHistory;
-            autoStampInput.HistoryDelete = DeleteAutoStampKeyword;
 
             autoInputRow.Controls.Add(autoLabel, 0, 0);
             autoInputRow.Controls.Add(autoStampInput, 1, 0);

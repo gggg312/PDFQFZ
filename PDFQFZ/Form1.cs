@@ -2004,9 +2004,6 @@ namespace PDFQFZ
                     return;
                 }
 
-                // 只要有文字并点击过放置，就记入历史（无论是否找到）
-                RecordAutoStampKeyword(keyword);
-
                 List<PdfTextMatch> matches;
                 using (PdfTextSearcher searcher = new PdfTextSearcher(previewPath))
                 {
@@ -2074,6 +2071,9 @@ namespace PDFQFZ
                 {
                     undoAutoStampButton.Enabled = true;
                 }
+
+                // 成功找到并完成盖章的文字才记入历史（搜索不到则不记；本次失败不影响之前同样文字的历史）
+                RecordAutoStampKeyword(keyword);
 
                 RefreshPreviewOverlays();
                 SetOperationHint(string.Format(
@@ -2183,17 +2183,6 @@ namespace PDFQFZ
                 history.RemoveRange(MaxAutoStampHistory, history.Count - MaxAutoStampHistory);
             }
             SaveAutoStampHistory(history);
-        }
-
-        /// <summary>从历史中删除一条盖章文字。</summary>
-        private void DeleteAutoStampKeyword(string keyword)
-        {
-            List<string> history = LoadAutoStampHistory();
-            int removed = history.RemoveAll(x => string.Equals(x, keyword, StringComparison.Ordinal));
-            if (removed > 0)
-            {
-                SaveAutoStampHistory(history);
-            }
         }
 
         /// <summary>程序启动时预填上一次输入过的盖章文字。</summary>
