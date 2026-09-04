@@ -493,27 +493,29 @@ namespace PDFQFZ
 
                 if (sourcePath != "" && outputPath != "" && (imgPath != "" || qfzType == 1 && yzType == 0))
                 {
-                    if (!File.Exists(imgPath))
+                    // 是否需要印章图片/印章参数：没有任何盖章操作时不需要，直接输出文件
+                    bool needStampImage = wantsSeam || wantsPage || wantsSignature || hasPreviewStamps;
+                    if (needStampImage && !File.Exists(imgPath))
                     {
                         MessageBox.Show("印章文件读取失败,请重新导入印章。");
                     }
-                    else if (!int.TryParse(textCC.Text, out size) || size > 100)
+                    else if (needStampImage && (!int.TryParse(textCC.Text, out size) || size > 100))
                     {
                         MessageBox.Show("印章尺寸设置错误,请输入正确的尺寸。");
                     }
-                    else if (!int.TryParse(textRotation.Text, out rotation))
+                    else if (needStampImage && (!int.TryParse(textRotation.Text, out rotation)))
                     {
                         MessageBox.Show("印章角度设置错误,请输入正确的整数。");
                     }
-                    else if (!int.TryParse(textOpacity.Text, out opacity) || opacity > 100)
+                    else if (needStampImage && (!int.TryParse(textOpacity.Text, out opacity) || opacity > 100))
                     {
                         MessageBox.Show("不透明度设置错误,请输入100以内的整数。");
                     }
-                    else if (!int.TryParse(textWzbl.Text, out wz) || wz > 100)
+                    else if (needStampImage && (!int.TryParse(textWzbl.Text, out wz) || wz > 100))
                     {
                         MessageBox.Show("骑缝章位置设置错误,请输入100以内的整数。");
                     }
-                    else if (!int.TryParse(textMaxFgs.Text, out maxfgs))
+                    else if (needStampImage && (!int.TryParse(textMaxFgs.Text, out maxfgs)))
                     {
                         MessageBox.Show("最大分割数设置错误,请输入正确的整数。");
                     }
