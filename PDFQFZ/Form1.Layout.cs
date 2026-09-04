@@ -30,6 +30,7 @@ namespace PDFQFZ
         private Button scrollViewButton;
         private TableLayoutPanel previewToolbar;
         private Label operationHint;
+        private Label savingStatusLabel;
         private Label previewPlaceholder;
         private Button specifiedPageButton;
         private TableLayoutPanel leftLayout;
@@ -135,7 +136,7 @@ namespace PDFQFZ
                 AutoScroll = true,
                 Padding = new Padding(12, 9, 12, 24),
                 ColumnCount = 1,
-                RowCount = 5
+                RowCount = 6
             };
             leftLayout = layout;
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -144,6 +145,7 @@ namespace PDFQFZ
             // panel is the flexible region so controls do not drift apart.
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44F));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             border.Controls.Add(layout);
 
@@ -161,12 +163,25 @@ namespace PDFQFZ
             };
             layout.Controls.Add(actionPanel, 0, 3);
 
+            // 保存阶段状态提示（两行：省略号动画 + 已用时计时），平时隐藏
+            savingStatusLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                AutoSize = false,
+                Visible = false,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0, 0, 20, 2),
+                ForeColor = Color.FromArgb(34, 62, 91),
+                BackColor = SystemColors.Control
+            };
+            layout.Controls.Add(savingStatusLabel, 0, 4);
+
             log.Dock = DockStyle.Fill;
             log.Margin = new Padding(0, 0, 20, 18);
             log.ScrollBars = ScrollBars.Vertical;
             log.WordWrap = true;
             log.MinimumSize = new Size(0, 150);
-            layout.Controls.Add(log, 0, 4);
+            layout.Controls.Add(log, 0, 5);
         }
 
         private Control BuildFileSection()
@@ -448,11 +463,10 @@ namespace PDFQFZ
                 Dock = DockStyle.Fill,
                 Padding = new Padding(12),
                 ColumnCount = 1,
-                RowCount = 5
+                RowCount = 4
             };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36F));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 56F));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 12F));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60F));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             border.Controls.Add(layout);
@@ -476,15 +490,8 @@ namespace PDFQFZ
             };
             layout.Controls.Add(operationHint, 0, 1);
 
-            // 进度条：用于文件级进度与保存阶段的不确定进度动画，平时隐藏
-            progressBar1.Dock = DockStyle.Fill;
-            progressBar1.Style = ProgressBarStyle.Blocks;
-            progressBar1.Visible = false;
-            progressBar1.Margin = new Padding(0, 0, 0, 3);
-            layout.Controls.Add(progressBar1, 0, 2);
-
             previewToolbar = CreatePreviewToolbar();
-            layout.Controls.Add(previewToolbar, 0, 3);
+            layout.Controls.Add(previewToolbar, 0, 2);
 
             previewViewport = new TableLayoutPanel
             {
@@ -544,7 +551,7 @@ namespace PDFQFZ
             };
             previewPageScrollBar.ValueChanged += PreviewPageScrollBar_ValueChanged;
             previewViewport.Controls.Add(previewPageScrollBar, 1, 0);
-            layout.Controls.Add(previewViewport, 0, 4);
+            layout.Controls.Add(previewViewport, 0, 3);
         }
 
         private void RecreatePreviewToolbarControls()

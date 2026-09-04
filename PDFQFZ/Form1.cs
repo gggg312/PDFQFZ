@@ -116,10 +116,11 @@ namespace PDFQFZ
         private int activeSpecifiedBatchId;
         private int lastCommittedYzType;
         private bool suppressYzSelectionChange;
-        // 保存阶段的不确定进度提示：进度条动画 + 实时计时，缓解大文件保存期等待焦虑
+        // 保存阶段的不确定进度提示：左边提示区两行文字动画（省略号增减）+ 实时计时，缓解大文件保存期等待焦虑
         private System.Windows.Forms.Timer savingTimer;
         private DateTime savingStartTime;
         private bool savingIndicatorActive;
+        private int savingDotPhase;
 
         public Form1(string[] args)
         {
@@ -848,14 +849,14 @@ namespace PDFQFZ
         }
 
         /// <summary>
-        /// 保存阶段指示器（后台线程调用）：进度条转为不确定动画（跑马灯），
-        /// 提示文字实时显示已用时，让用户明确知道程序仍在运行。
+        /// 保存阶段指示器（后台线程调用）：在左边提示区显示两行文字——
+        /// “正在保存中.....”省略号循环增减动画 + 第二行已用时计时，让用户明确知道程序仍在运行。
         /// </summary>
         private void ShowSavingIndicator(bool active)
         {
-            if (progressBar1.InvokeRequired)
+            if (savingStatusLabel.InvokeRequired)
             {
-                progressBar1.BeginInvoke(new Action<bool>(ShowSavingIndicator), active);
+                savingStatusLabel.BeginInvoke(new Action<bool>(ShowSavingIndicator), active);
                 return;
             }
 
@@ -863,17 +864,16 @@ namespace PDFQFZ
             {
                 savingIndicatorActive = true;
                 savingStartTime = DateTime.Now;
-                progressBar1.Visible = true;
-                progressBar1.Style = ProgressBarStyle.Marquee;
-                progressBar1.MarqueeAnimationSpeed = 30;
+                savingDotPhase = 0;
                 if (savingTimer == null)
                 {
                     savingTimer = new System.Windows.Forms.Timer();
-                    savingTimer.Interval = 500;
+                    savingTimer.Interval = 300;
                     savingTimer.Tick += (s, e) => UpdateSavingIndicatorTick();
                 }
+                savingStatusLabel.Visible = true;
                 savingTimer.Start();
-                SetOperationHint("正在保存文件，请稍候...（已用时 00:00）");
+                UpdateSavingIndicatorTick();
             }
             else
             {
@@ -882,13 +882,12 @@ namespace PDFQFZ
                 {
                     savingTimer.Stop();
                 }
-                progressBar1.Style = ProgressBarStyle.Blocks;
-                progressBar1.Visible = false;
+                savingStatusLabel.Visible = false;
             }
         }
 
         /// <summary>
-        /// 保存计时刷新（UI 线程）：每秒更新提示区已用时
+        /// 保存文字动画刷新（UI 线程）：省略号数量先增后减循环，第二行显示已用时
         /// </summary>
         private void UpdateSavingIndicatorTick()
         {
@@ -897,8 +896,11 @@ namespace PDFQFZ
                 return;
             }
 
+            savingDotPhase = (savingDotPhase + 1) % 8;
+            int dotCount = 3 + (savingDotPhase < 4 ? savingDotPhase : 7 - savingDotPhase);
             TimeSpan elapsed = DateTime.Now - savingStartTime;
-            SetOperationHint(string.Format("正在保存文件，请稍候...（已用时 {0:mm\\:ss}）", elapsed));
+            savingStatusLabel.Text = string.Format("正在保存中{0}\r\n已用时 {1:mm\\:ss}",
+                new string('.', dotCount), elapsed);
         }
 
         /// <summary>
