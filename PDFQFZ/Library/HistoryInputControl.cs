@@ -1,23 +1,21 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Windows.Forms;
 
 namespace PDFQFZ.Library
 {
     /// <summary>
-    /// 带历史下拉和框内清除按钮的输入控件。
+    /// 带历史下拉的输入控件。
     /// 历史下拉使用 WinForms 系统原生菜单容器 ToolStripDropDown：
     /// - hover 高亮、滚动、键盘上下选择 + 回车确认、Esc / 点击外部关闭均由系统自动处理（标准菜单交互规范）
-    /// - 每条历史右侧带圆形"×"删除按钮
-    /// 输入框内右侧提供圆形"×"清除按钮（有文字时显示，点击一键清空）。
+    /// - 每条历史右侧带轻量的系统文字"×"删除按钮
+    /// 说明：WinForms 输入框没有系统自带的清除按钮，故输入框保持普通样式，由用户手动编辑/删除文字。
     /// </summary>
     public sealed class HistoryInputControl : UserControl
     {
         private readonly TextBox inner;
-        private readonly InlineClearButton clear;
         private readonly ToolStripDropDown dropDown;
 
         /// <summary>读取历史列表（最新在前）的委托。</summary>
@@ -42,26 +40,10 @@ namespace PDFQFZ.Library
                 BorderStyle = BorderStyle.None,
                 Dock = DockStyle.Fill,
                 Margin = new Padding(0),
-                Padding = new Padding(3, 1, 20, 1)   // 右侧留出清除按钮空间
-            };
-
-            clear = new InlineClearButton
-            {
-                Size = new Size(16, 16),
-                Anchor = AnchorStyles.Top | AnchorStyles.Right,
-                TabStop = false
-            };
-            clear.Cleared += (s, e) =>
-            {
-                inner.Text = string.Empty;
-                inner.Focus();
+                Padding = new Padding(3, 1, 2, 1)
             };
 
             Controls.Add(inner);
-            Controls.Add(clear);
-            LayoutClearButton();
-
-            Resize += (s, e) => LayoutClearButton();
 
             inner.Click += (s, e) => ShowHistoryDropDown();
             inner.KeyDown += (s, e) =>
@@ -72,12 +54,7 @@ namespace PDFQFZ.Library
                     e.Handled = true;
                 }
             };
-            inner.TextChanged += (s, e) =>
-            {
-                clear.Visible = inner.Text.Length > 0;
-                TextContentChanged?.Invoke(this, EventArgs.Empty);
-            };
-            clear.Visible = false;
+            inner.TextChanged += (s, e) => TextContentChanged?.Invoke(this, EventArgs.Empty);
 
             dropDown = new ToolStripDropDown
             {
@@ -103,12 +80,6 @@ namespace PDFQFZ.Library
         public void FocusInput()
         {
             inner.Focus();
-        }
-
-        private void LayoutClearButton()
-        {
-            clear.Left = Width - clear.Width - 6;
-            clear.Top = (Height - clear.Height) / 2;
         }
 
         private void ShowHistoryDropDown()
@@ -163,32 +134,27 @@ namespace PDFQFZ.Library
                 e.Graphics,
                 item.Text,
                 item.Font,
-                new Rectangle(r.Left + 8, r.Top, r.Width - 34, r.Height),
+                new Rectangle(r.Left + 8, r.Top, r.Width - 30, r.Height),
                 selected ? SystemColors.HighlightText : SystemColors.MenuText,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
 
-            // 右侧圆形删除叉
-            Rectangle circle = GetDeleteCircle(r);
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using (SolidBrush cb = new SolidBrush(selected ? Color.FromArgb(235, 235, 235) : Color.FromArgb(205, 205, 205)))
-            {
-                e.Graphics.FillEllipse(cb, circle);
-            }
-
-            using (Pen cp = new Pen(selected ? Color.Black : Color.White, 1.4f))
-            {
-                int pad = 5;
-                e.Graphics.DrawLine(cp, circle.Left + pad, circle.Top + pad, circle.Right - pad, circle.Bottom - pad);
-                e.Graphics.DrawLine(cp, circle.Right - pad, circle.Top + pad, circle.Left + pad, circle.Bottom - pad);
-            }
+            // 右侧轻量删除叉：系统文字"×"，无底色，hover 时变亮
+            Rectangle delRect = GetDeleteRect(r);
+            TextRenderer.DrawText(
+                e.Graphics,
+                "×",
+                item.Font,
+                delRect,
+                selected ? Color.FromArgb(235, 235, 235) : Color.FromArgb(150, 150, 150),
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
 
         private void MenuItem_MouseDown(object sender, MouseEventArgs e)
         {
             ToolStripMenuItem item = (ToolStripMenuItem)sender;
             Rectangle r = new Rectangle(0, 0, item.Width, item.Height);
-            Rectangle del = GetDeleteCircle(r);
-            del.Inflate(3, 3);
+            Rectangle del = GetDeleteRect(r);
+            del.Inflate(2, 2);
 
             if (del.Contains(e.Location))
             {
@@ -216,63 +182,9 @@ namespace PDFQFZ.Library
             }
         }
 
-        private static Rectangle GetDeleteCircle(Rectangle r)
+        private static Rectangle GetDeleteRect(Rectangle r)
         {
-            return new Rectangle(r.Right - 26, r.Top + (r.Height - 18) / 2, 18, 18);
-        }
-    }
-
-    /// <summary>框内圆形"×"清除按钮（自绘，浅灰圆底 + 白色叉）。</summary>
-    internal sealed class InlineClearButton : Control
-    {
-        private bool hovered;
-
-        /// <summary>用户点击清除按钮。</summary>
-        public event EventHandler Cleared;
-
-        public InlineClearButton()
-        {
-            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer
-                | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
-            TabStop = false;
-        }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            base.OnPaint(e);
-            Rectangle r = ClientRectangle;
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using (SolidBrush bg = new SolidBrush(hovered ? Color.FromArgb(200, 200, 200) : Color.FromArgb(182, 182, 182)))
-            {
-                e.Graphics.FillEllipse(bg, r);
-            }
-
-            using (Pen pen = new Pen(Color.White, 1.5f))
-            {
-                int pad = 5;
-                e.Graphics.DrawLine(pen, r.Left + pad, r.Top + pad, r.Right - pad, r.Bottom - pad);
-                e.Graphics.DrawLine(pen, r.Right - pad, r.Top + pad, r.Left + pad, r.Bottom - pad);
-            }
-        }
-
-        protected override void OnMouseEnter(EventArgs e)
-        {
-            hovered = true;
-            Invalidate();
-            base.OnMouseEnter(e);
-        }
-
-        protected override void OnMouseLeave(EventArgs e)
-        {
-            hovered = false;
-            Invalidate();
-            base.OnMouseLeave(e);
-        }
-
-        protected override void OnClick(EventArgs e)
-        {
-            base.OnClick(e);
-            Cleared?.Invoke(this, EventArgs.Empty);
+            return new Rectangle(r.Right - 22, r.Top, 18, r.Height);
         }
     }
 }

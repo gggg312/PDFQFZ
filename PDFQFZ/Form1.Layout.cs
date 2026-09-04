@@ -326,7 +326,7 @@ namespace PDFQFZ
             autoStampInput = new HistoryInputControl
             {
                 Dock = DockStyle.Fill,
-                Margin = new Padding(0, 2, 0, 0)
+                Margin = new Padding(0, 2, 14, 0)   // 右侧留白，与其他输入框右边界对齐
             };
             autoStampInput.HistoryProvider = LoadAutoStampHistory;
             autoStampInput.HistoryDelete = DeleteAutoStampKeyword;
