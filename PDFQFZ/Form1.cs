@@ -82,6 +82,8 @@ namespace PDFQFZ
         Bitmap[] viewPdfimgs = null;         //预览的pdf列表， viewPdfimgs[imgStartPage-1]表示当前在预览的图片
         PageCache<Bitmap> previewPageCache = null;
         IPdfDocumentRenderer previewPdfRenderer = null;
+        // 预览渲染分辨率（DPI）：72 太低导致预览文字模糊；随系统屏幕 DPI 渲染更清晰，并设上限避免大文件内存过高
+        readonly int previewRenderDpi = Math.Max(96, Math.Min(144, (int)Math.Round(Graphics.FromHwnd(IntPtr.Zero).DpiX)));
         string previewRenderPath = "";
         Bitmap cachedTransparentStamp = null;
         string cachedTransparentStampKey = "";
@@ -2677,7 +2679,7 @@ namespace PDFQFZ
                 imgStartPage = 1;
                 imgPageCount = previewPdfRenderer.PageCount;
                 viewPdfimgs = new Bitmap[imgPageCount];
-                previewPageCache = new PageCache<Bitmap>(pageIndex => previewPdfRenderer.RenderPage(pageIndex, 72));
+                previewPageCache = new PageCache<Bitmap>(pageIndex => previewPdfRenderer.RenderPage(pageIndex, previewRenderDpi));
 
                 for (int i = 1; i <= imgPageCount; i++)
                 {
@@ -2834,7 +2836,9 @@ namespace PDFQFZ
                     imagePixelWidth: stampImage.Width,
                     imagePixelHeight: stampImage.Height,
                     previewWidth: pictureBox1.Width,
-                    pdfWidth: pictureBox1.Width,
+                    pdfWidth: pictureBox1.Image == null
+                        ? pictureBox1.Width
+                        : pictureBox1.Image.Width * 72f / previewRenderDpi,
                     fallbackSquareSize: yzr * 2);
                 pictureBox2.Size = overlaySize;
             }
@@ -2878,6 +2882,9 @@ namespace PDFQFZ
                 return;
             }
 
+            // 页面物理宽度（pt）→ 显示换算基准：预览图片像素 ÷ 渲染缩放
+            float pageWidthPoints = pictureBox1.Image.Width * 72f / previewRenderDpi;
+
             foreach (StampPlacement placement in stampPlacements.ForPage(previewPath, imgStartPage))
             {
                 try
@@ -2889,7 +2896,7 @@ namespace PDFQFZ
                         stampBitmap.Width,
                         stampBitmap.Height,
                         pictureBox1.Width,
-                        pictureBox1.Image.Width,
+                        pageWidthPoints,
                         yzr * 2);
                     PictureBox overlay = new PictureBox
                     {
@@ -2956,7 +2963,9 @@ namespace PDFQFZ
                 UseWhiteTransparency = cbxTransColor.Checked,
                 UseOriginalRotationCrop = qbflag == 0,
                 PreviewWidth = pictureBox1.Width,
-                PdfWidth = pictureBox1.Image == null ? pictureBox1.Width : pictureBox1.Image.Width,
+                PdfWidth = pictureBox1.Image == null
+                    ? pictureBox1.Width
+                    : (int)Math.Round(pictureBox1.Image.Width * 72f / previewRenderDpi),
                 FallbackSquareSize = yzr * 2
             };
         }
