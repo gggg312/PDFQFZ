@@ -116,6 +116,10 @@ namespace PDFQFZ
         private int activeSpecifiedBatchId;
         private int lastCommittedYzType;
         private bool suppressYzSelectionChange;
+        // 保存阶段的不确定进度提示：进度条动画 + 实时计时，缓解大文件保存期等待焦虑
+        private System.Windows.Forms.Timer savingTimer;
+        private DateTime savingStartTime;
+        private bool savingIndicatorActive;
 
         public Form1(string[] args)
         {
@@ -721,7 +725,8 @@ namespace PDFQFZ
                         UpdateStampProgress(done, total, fileInfo.Name);
                         bool isSurrcess = PDFWatermark(source, output, source,
                             (d, t) => UpdateStampPageProgress(d, t, fileInfo.Name),
-                            msg => SetOperationHint(msg));
+                            msg => SetOperationHint(msg),
+                            saving => ShowSavingIndicator(saving));
                         if (isSurrcess && djType == 1)
                         {
                             PDFToiPDF(output);
@@ -756,7 +761,8 @@ namespace PDFQFZ
                         UpdateStampProgress(done, total, filename);
                         bool isSurrcess = PDFWatermark(file, output, file,
                             (d, t) => UpdateStampPageProgress(d, t, filename),
-                            msg => SetOperationHint(msg));
+                            msg => SetOperationHint(msg),
+                            saving => ShowSavingIndicator(saving));
                         if (isSurrcess)
                         {
                             if (djType == 1)
@@ -841,6 +847,60 @@ namespace PDFQFZ
             int percent = total > 0 ? (int)Math.Round(100.0 * done / total) : 0;
             SetOperationHint(string.Format("正在盖章中：已完成 {0}/{1} 页（{2}%），文件：{3}",
                 done, total, percent, fileName));
+        }
+
+        /// <summary>
+        /// 保存阶段指示器（后台线程调用）：进度条转为不确定动画（跑马灯），
+        /// 提示文字实时显示已用时，让用户明确知道程序仍在运行。
+        /// </summary>
+        private void ShowSavingIndicator(bool active)
+        {
+            if (progressBar1.InvokeRequired)
+            {
+                progressBar1.BeginInvoke(new Action<bool>(ShowSavingIndicator), active);
+                return;
+            }
+
+            if (active)
+            {
+                savingIndicatorActive = true;
+                savingStartTime = DateTime.Now;
+                progressBar1.Visible = true;
+                progressBar1.Style = ProgressBarStyle.Marquee;
+                progressBar1.MarqueeAnimationSpeed = 30;
+                if (savingTimer == null)
+                {
+                    savingTimer = new System.Windows.Forms.Timer();
+                    savingTimer.Interval = 500;
+                    savingTimer.Tick += (s, e) => UpdateSavingIndicatorTick();
+                }
+                savingTimer.Start();
+                SetOperationHint("正在保存文件，请稍候...（已用时 00:00）");
+            }
+            else
+            {
+                savingIndicatorActive = false;
+                if (savingTimer != null)
+                {
+                    savingTimer.Stop();
+                }
+                progressBar1.Style = ProgressBarStyle.Blocks;
+                progressBar1.Visible = false;
+            }
+        }
+
+        /// <summary>
+        /// 保存计时刷新（UI 线程）：每秒更新提示区已用时
+        /// </summary>
+        private void UpdateSavingIndicatorTick()
+        {
+            if (!savingIndicatorActive)
+            {
+                return;
+            }
+
+            TimeSpan elapsed = DateTime.Now - savingStartTime;
+            SetOperationHint(string.Format("正在保存文件，请稍候...（已用时 {0:mm\\:ss}）", elapsed));
         }
 
         /// <summary>
@@ -1079,7 +1139,7 @@ namespace PDFQFZ
         }
 
         //PDF盖章(贴图)
-        private bool PDFWatermark(string inputfilepath, string outputfilepath, string sourcepath, Action<int, int> pageProgress = null, Action<string> statusMessage = null)
+        private bool PDFWatermark(string inputfilepath, string outputfilepath, string sourcepath, Action<int, int> pageProgress = null, Action<string> statusMessage = null, Action<bool> savingIndicator = null)
         {
             float sfbl = (100f * size * xzbl * 72) / (25.4f * imgYz.Width);
 
@@ -1399,20 +1459,35 @@ namespace PDFQFZ
             }
             finally
             {
-                // 保存阶段：iTextSharp 在 Close 时才把改动写回整个文件，大文件较耗时，先提示用户
+                // 保存阶段：iTextSharp 在 Close 时才把改动写回整个文件，大文件较耗时。
+                // 开启不确定进度动画 + 计时提示，确保 Close 期间界面仍有反馈（Close 整体写入，无法拿到真实百分比）
+                if (savingIndicator != null)
+                {
+                    savingIndicator(true);
+                }
                 if (statusMessage != null)
                 {
                     statusMessage("正在保存文件，请稍候...");
                 }
 
-                if (pdfStamper != null)
-                    pdfStamper.Close();
+                try
+                {
+                    if (pdfStamper != null)
+                        pdfStamper.Close();
 
-                if (pdfReader != null)
-                    pdfReader.Close();
+                    if (pdfReader != null)
+                        pdfReader.Close();
 
-                if (fileStream != null)
-                    fileStream.Close();
+                    if (fileStream != null)
+                        fileStream.Close();
+                }
+                finally
+                {
+                    if (savingIndicator != null)
+                    {
+                        savingIndicator(false);
+                    }
+                }
 
                 //盖章失败时清理可能残留的 0 字节空文件
                 if (File.Exists(outputfilepath))
