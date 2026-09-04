@@ -8,25 +8,26 @@ using System.Windows.Forms;
 namespace PDFQFZ.Library
 {
     /// <summary>
-    /// 带历史下拉和框内清除按钮的输入控件（标准样式）。
-    /// - 输入框右侧框内有一个圆形"×"清除按钮（有文字时显示，点击清空）
-    /// - 点击输入框弹出历史下拉（无焦点，输入框仍可继续输入/删除）
-    /// - 下拉每条历史右侧带圆形"×"删除按钮
-    /// 历史数据通过 HistoryProvider / HistoryDelete 与外部配置读写对接。
+    /// 带历史下拉和框内清除按钮的输入控件。
+    /// 历史下拉使用 WinForms 系统原生菜单容器 ToolStripDropDown：
+    /// - hover 高亮、滚动、键盘上下选择 + 回车确认、Esc / 点击外部关闭均由系统自动处理（标准菜单交互规范）
+    /// - 每条历史右侧带圆形"×"删除按钮
+    /// 输入框内右侧提供圆形"×"清除按钮（有文字时显示，点击一键清空）。
     /// </summary>
     public sealed class HistoryInputControl : UserControl
     {
-        private readonly TableLayoutPanel layout;
         private readonly TextBox inner;
         private readonly InlineClearButton clear;
-        private readonly HistoryPopupForm popup;
-        private readonly PopupDismissMessageFilter dismissFilter;
+        private readonly ToolStripDropDown dropDown;
 
         /// <summary>读取历史列表（最新在前）的委托。</summary>
         public Func<IEnumerable<string>> HistoryProvider { get; set; }
 
         /// <summary>删除一条历史的委托。</summary>
         public Action<string> HistoryDelete { get; set; }
+
+        /// <summary>输入框文字变化事件。</summary>
+        public event EventHandler TextContentChanged;
 
         public HistoryInputControl()
         {
@@ -36,29 +37,19 @@ namespace PDFQFZ.Library
             DoubleBuffered = true;
             Height = 24;
 
-            layout = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                RowCount = 1,
-                Margin = new Padding(1),
-                Padding = new Padding(0)
-            };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 22F));
-
             inner = new TextBox
             {
                 BorderStyle = BorderStyle.None,
                 Dock = DockStyle.Fill,
-                Margin = new Padding(4, 2, 0, 2),
-                Padding = new Padding(3, 1, 22, 1)
+                Margin = new Padding(0),
+                Padding = new Padding(3, 1, 20, 1)   // 右侧留出清除按钮空间
             };
 
             clear = new InlineClearButton
             {
+                Size = new Size(16, 16),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right,
-                Margin = new Padding(2, 4, 4, 4)
+                TabStop = false
             };
             clear.Cleared += (s, e) =>
             {
@@ -66,26 +57,19 @@ namespace PDFQFZ.Library
                 inner.Focus();
             };
 
-            layout.Controls.Add(inner, 0, 0);
-            layout.Controls.Add(clear, 1, 0);
-            Controls.Add(layout);
+            Controls.Add(inner);
+            Controls.Add(clear);
+            LayoutClearButton();
 
-            popup = new HistoryPopupForm(Font, OnHistorySelected, OnHistoryDeleted);
-            dismissFilter = new PopupDismissMessageFilter(
-                p => popup.Bounds.Contains(p) || RectangleToScreen(ClientRectangle).Contains(p));
-            dismissFilter.OutsideClick += HidePopup;
+            Resize += (s, e) => LayoutClearButton();
 
-            inner.Click += (s, e) => ShowHistory();
+            inner.Click += (s, e) => ShowHistoryDropDown();
             inner.KeyDown += (s, e) =>
             {
                 if (e.KeyCode == Keys.Down)
                 {
-                    ShowHistory();
+                    ShowHistoryDropDown();
                     e.Handled = true;
-                }
-                else if (e.KeyCode == Keys.Escape)
-                {
-                    HidePopup();
                 }
             };
             inner.TextChanged += (s, e) =>
@@ -94,10 +78,13 @@ namespace PDFQFZ.Library
                 TextContentChanged?.Invoke(this, EventArgs.Empty);
             };
             clear.Visible = false;
-        }
 
-        /// <summary>输入框文字变化事件。</summary>
-        public event EventHandler TextContentChanged;
+            dropDown = new ToolStripDropDown
+            {
+                AutoClose = true,
+                Padding = new Padding(0)
+            };
+        }
 
         /// <summary>输入框当前文字。</summary>
         public new string Text
@@ -118,60 +105,120 @@ namespace PDFQFZ.Library
             inner.Focus();
         }
 
-        private void ShowHistory()
+        private void LayoutClearButton()
+        {
+            clear.Left = Width - clear.Width - 6;
+            clear.Top = (Height - clear.Height) / 2;
+        }
+
+        private void ShowHistoryDropDown()
         {
             List<string> items = (HistoryProvider?.Invoke() ?? Enumerable.Empty<string>()).ToList();
             if (items.Count == 0)
             {
-                HidePopup();
+                if (dropDown.Visible)
+                {
+                    dropDown.Close();
+                }
                 return;
             }
 
-            if (popup.Visible)
+            int width = Math.Max(inner.Width, 200);
+            dropDown.Items.Clear();
+            foreach (string text in items)
             {
-                popup.UpdateItems(items);
+                ToolStripMenuItem item = new ToolStripMenuItem(text)
+                {
+                    AutoSize = false,
+                    Height = 26,
+                    Width = width - 2
+                };
+                item.Paint += MenuItem_Paint;
+                item.MouseDown += MenuItem_MouseDown;
+                dropDown.Items.Add(item);
+            }
+
+            if (dropDown.Visible)
+            {
+                dropDown.Invalidate();
                 return;
             }
 
-            Point screen = inner.PointToScreen(new Point(0, inner.Height + 1));
-            int width = Math.Max(inner.Width, 160);
-            int height = Math.Min(items.Count * popup.ItemHeight + 8, 240);
-            popup.ShowAt(screen, new Size(width, height), items);
-            Application.AddMessageFilter(dismissFilter);
+            dropDown.Width = width;
+            dropDown.Show(inner, new Point(0, inner.Height + 1));
         }
 
-        private void HidePopup()
+        private void MenuItem_Paint(object sender, PaintEventArgs e)
         {
-            if (popup.Visible)
+            ToolStripMenuItem item = (ToolStripMenuItem)sender;
+            Rectangle r = e.ClipRectangle;
+            bool selected = item.Selected;
+
+            using (SolidBrush bg = new SolidBrush(selected ? SystemColors.Highlight : SystemColors.Menu))
             {
-                popup.Hide();
-                Application.RemoveMessageFilter(dismissFilter);
+                e.Graphics.FillRectangle(bg, r);
+            }
+
+            TextRenderer.DrawText(
+                e.Graphics,
+                item.Text,
+                item.Font,
+                new Rectangle(r.Left + 8, r.Top, r.Width - 34, r.Height),
+                selected ? SystemColors.HighlightText : SystemColors.MenuText,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+
+            // 右侧圆形删除叉
+            Rectangle circle = GetDeleteCircle(r);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (SolidBrush cb = new SolidBrush(selected ? Color.FromArgb(235, 235, 235) : Color.FromArgb(205, 205, 205)))
+            {
+                e.Graphics.FillEllipse(cb, circle);
+            }
+
+            using (Pen cp = new Pen(selected ? Color.Black : Color.White, 1.4f))
+            {
+                int pad = 5;
+                e.Graphics.DrawLine(cp, circle.Left + pad, circle.Top + pad, circle.Right - pad, circle.Bottom - pad);
+                e.Graphics.DrawLine(cp, circle.Right - pad, circle.Top + pad, circle.Left + pad, circle.Bottom - pad);
             }
         }
 
-        private void OnHistorySelected(string text)
+        private void MenuItem_MouseDown(object sender, MouseEventArgs e)
         {
-            HidePopup();
-            inner.Text = text;
-            inner.Select(text.Length, 0);
-            inner.Focus();
-        }
+            ToolStripMenuItem item = (ToolStripMenuItem)sender;
+            Rectangle r = new Rectangle(0, 0, item.Width, item.Height);
+            Rectangle del = GetDeleteCircle(r);
+            del.Inflate(3, 3);
 
-        private void OnHistoryDeleted(string text)
-        {
-            HistoryDelete?.Invoke(text);
-        }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            base.OnPaint(e);
-            using (Pen pen = new Pen(inner.Focused ? SystemColors.Highlight : Color.FromArgb(171, 173, 179)))
+            if (del.Contains(e.Location))
             {
-                Rectangle r = ClientRectangle;
-                r.Width--;
-                r.Height--;
-                e.Graphics.DrawRectangle(pen, r);
+                // 点击删除叉：删除该条历史并同步配置
+                string keyword = item.Text;
+                HistoryDelete?.Invoke(keyword);
+                item.Owner.Items.Remove(item);
+                if (dropDown.Items.Count == 0)
+                {
+                    dropDown.Close();
+                }
+                else
+                {
+                    dropDown.Invalidate();
+                }
             }
+            else
+            {
+                // 点击文字：选择该历史填入输入框
+                string keyword = item.Text;
+                inner.Text = keyword;
+                inner.Select(keyword.Length, 0);
+                inner.Focus();
+                dropDown.Close();
+            }
+        }
+
+        private static Rectangle GetDeleteCircle(Rectangle r)
+        {
+            return new Rectangle(r.Right - 26, r.Top + (r.Height - 18) / 2, 18, 18);
         }
     }
 
@@ -187,7 +234,6 @@ namespace PDFQFZ.Library
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer
                 | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
-            Size = new Size(16, 16);
             TabStop = false;
         }
 
@@ -227,206 +273,6 @@ namespace PDFQFZ.Library
         {
             base.OnClick(e);
             Cleared?.Invoke(this, EventArgs.Empty);
-        }
-    }
-
-    /// <summary>无焦点历史下拉窗体（不抢输入框焦点，输入框可继续输入）。</summary>
-    internal sealed class HistoryPopupForm : Form
-    {
-        private readonly ListBox list;
-        private readonly Action<string> onSelect;
-        private readonly Action<string> onDelete;
-
-        public HistoryPopupForm(Font font, Action<string> onSelect, Action<string> onDelete)
-        {
-            this.onSelect = onSelect;
-            this.onDelete = onDelete;
-
-            FormBorderStyle = FormBorderStyle.None;
-            ShowInTaskbar = false;
-            StartPosition = FormStartPosition.Manual;
-            BackColor = Color.FromArgb(171, 173, 179);   // 1px 边框色
-            Padding = new Padding(1);
-
-            list = new ListBox
-            {
-                Dock = DockStyle.Fill,
-                BorderStyle = BorderStyle.None,
-                DrawMode = DrawMode.OwnerDrawFixed,
-                ItemHeight = 28,
-                IntegralHeight = false,
-                BackColor = SystemColors.Window,
-                Font = font
-            };
-            list.DrawItem += DrawItemHandler;
-            list.MouseDown += MouseDownHandler;
-            list.KeyDown += (s, e) =>
-            {
-                if (e.KeyCode == Keys.Escape)
-                {
-                    Hide();
-                }
-            };
-            Controls.Add(list);
-        }
-
-        public int ItemHeight
-        {
-            get { return list.ItemHeight; }
-        }
-
-        /// <summary>无焦点弹出：不激活、不抢输入框焦点。</summary>
-        protected override CreateParams CreateParams
-        {
-            get
-            {
-                CreateParams cp = base.CreateParams;
-                cp.ExStyle |= 0x08000000;   // WS_EX_NOACTIVATE
-                cp.ExStyle |= 0x00000080;   // WS_EX_TOOLWINDOW
-                return cp;
-            }
-        }
-
-        protected override bool ShowWithoutActivation
-        {
-            get { return true; }
-        }
-
-        public void ShowAt(Point screenLocation, Size size, IEnumerable<string> items)
-        {
-            list.Items.Clear();
-            foreach (string item in items)
-            {
-                list.Items.Add(item);
-            }
-
-            SetBounds(screenLocation.X, screenLocation.Y, size.Width, size.Height);
-            Rectangle workArea = Screen.GetWorkingArea(screenLocation);
-            if (Right > workArea.Right)
-            {
-                Left = workArea.Right - Width;
-            }
-            if (Bottom > workArea.Bottom)
-            {
-                Top = workArea.Bottom - Height;
-            }
-
-            Show();
-            list.Invalidate();
-        }
-
-        public void UpdateItems(IEnumerable<string> items)
-        {
-            list.Items.Clear();
-            foreach (string item in items)
-            {
-                list.Items.Add(item);
-            }
-            list.Invalidate();
-        }
-
-        private void DrawItemHandler(object sender, DrawItemEventArgs e)
-        {
-            if (e.Index < 0 || list.Items.Count == 0)
-            {
-                return;
-            }
-
-            string text = list.Items[e.Index].ToString();
-            bool selected = (e.State & DrawItemState.Selected) != 0;
-
-            using (SolidBrush bg = new SolidBrush(selected ? SystemColors.Highlight : SystemColors.Window))
-            {
-                e.Graphics.FillRectangle(bg, e.Bounds);
-            }
-
-            TextRenderer.DrawText(
-                e.Graphics,
-                text,
-                list.Font,
-                new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 32, e.Bounds.Height),
-                selected ? SystemColors.HighlightText : SystemColors.WindowText,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-
-            // 右侧圆形删除叉
-            Rectangle circle = GetDeleteCircle(e.Bounds);
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using (SolidBrush cb = new SolidBrush(selected ? Color.FromArgb(230, 230, 230) : Color.FromArgb(200, 200, 200)))
-            {
-                e.Graphics.FillEllipse(cb, circle);
-            }
-
-            using (Pen cp = new Pen(selected ? Color.Black : Color.White, 1.4f))
-            {
-                int pad = 5;
-                e.Graphics.DrawLine(cp, circle.Left + pad, circle.Top + pad, circle.Right - pad, circle.Bottom - pad);
-                e.Graphics.DrawLine(cp, circle.Right - pad, circle.Top + pad, circle.Left + pad, circle.Bottom - pad);
-            }
-        }
-
-        private void MouseDownHandler(object sender, MouseEventArgs e)
-        {
-            int index = list.IndexFromPoint(e.Location);
-            if (index < 0 || index >= list.Items.Count)
-            {
-                return;
-            }
-
-            string keyword = list.Items[index].ToString();
-            Rectangle bounds = list.GetItemRectangle(index);
-            Rectangle circle = GetDeleteCircle(bounds);
-            circle.Inflate(3, 3);
-
-            if (circle.Contains(e.Location))
-            {
-                // 点击删除叉：从历史中移除并同步配置
-                onDelete?.Invoke(keyword);
-                list.Items.RemoveAt(index);
-                if (list.Items.Count == 0)
-                {
-                    Hide();
-                }
-                else
-                {
-                    list.Invalidate();
-                }
-            }
-            else
-            {
-                // 点击文字：选择该历史
-                onSelect?.Invoke(keyword);
-            }
-        }
-
-        private static Rectangle GetDeleteCircle(Rectangle bounds)
-        {
-            return new Rectangle(bounds.Right - 24, bounds.Top + (bounds.Height - 18) / 2, 18, 18);
-        }
-    }
-
-    /// <summary>全局鼠标过滤：点击下拉与输入控件之外时关闭下拉。</summary>
-    internal sealed class PopupDismissMessageFilter : IMessageFilter
-    {
-        private readonly Func<Point, bool> isInside;
-
-        /// <summary>点击到外部时触发。</summary>
-        public event Action OutsideClick;
-
-        public PopupDismissMessageFilter(Func<Point, bool> isInside)
-        {
-            this.isInside = isInside;
-        }
-
-        public bool PreFilterMessage(ref Message m)
-        {
-            if (m.Msg == 0x201 || m.Msg == 0x204 || m.Msg == 0x207)   // 鼠标左/右/中键按下
-            {
-                if (!isInside(Cursor.Position))
-                {
-                    OutsideClick?.Invoke();
-                }
-            }
-            return false;
         }
     }
 }

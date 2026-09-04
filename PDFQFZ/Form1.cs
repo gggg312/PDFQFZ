@@ -99,6 +99,7 @@ namespace PDFQFZ
         System.Windows.Forms.Button autoStampButton = null;
         System.Windows.Forms.Button undoAutoStampButton = null;
         int lastAutoStampBatchId = 0;
+        string lastAutoStampKeyword = null;
 
         //按文字盖章历史记忆相关
         const string AutoStampHistoryIniKey = "autoStampHistory";
@@ -2003,6 +2004,9 @@ namespace PDFQFZ
                     return;
                 }
 
+                // 只要有文字并点击过放置，就记入历史（无论是否找到）
+                RecordAutoStampKeyword(keyword);
+
                 List<PdfTextMatch> matches;
                 using (PdfTextSearcher searcher = new PdfTextSearcher(previewPath))
                 {
@@ -2022,11 +2026,14 @@ namespace PDFQFZ
                     return;
                 }
 
-                // 方案A：放置前先清掉上一次自动批，避免连续点击导致同一位置叠加多个章
-                if (lastAutoStampBatchId > 0)
+                // 相同文字再次放置时：先清掉上一次自动批，避免同一位置叠加多个章（不同文字则保留各自的章）
+                if (lastAutoStampBatchId > 0
+                    && !string.IsNullOrEmpty(lastAutoStampKeyword)
+                    && string.Equals(lastAutoStampKeyword, keyword, StringComparison.Ordinal))
                 {
                     stampPlacements.RemoveBatch(previewPath, lastAutoStampBatchId);
                     lastAutoStampBatchId = 0;
+                    lastAutoStampKeyword = null;
                 }
 
                 int batchId = stampPlacements.CreateBatchId();
@@ -2053,13 +2060,11 @@ namespace PDFQFZ
                 }
 
                 lastAutoStampBatchId = batchId;
+                lastAutoStampKeyword = keyword;
                 if (undoAutoStampButton != null)
                 {
                     undoAutoStampButton.Enabled = true;
                 }
-
-                // 记入历史，方便下次点击输入框时选择
-                RecordAutoStampKeyword(keyword);
 
                 RefreshPreviewOverlays();
                 SetOperationHint(string.Format(
@@ -2082,6 +2087,7 @@ namespace PDFQFZ
 
             int removed = stampPlacements.RemoveBatch(previewPath, lastAutoStampBatchId);
             lastAutoStampBatchId = 0;
+            lastAutoStampKeyword = null;
             if (undoAutoStampButton != null)
             {
                 undoAutoStampButton.Enabled = false;
