@@ -6,20 +6,17 @@ using PDFQFZ.Library;
 using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using System.Windows.Forms.VisualStyles;
 
 namespace PDFQFZ
 {
@@ -82,8 +79,9 @@ namespace PDFQFZ
         Bitmap[] viewPdfimgs = null;         //预览的pdf列表， viewPdfimgs[imgStartPage-1]表示当前在预览的图片
         PageCache<Bitmap> previewPageCache = null;
         IPdfDocumentRenderer previewPdfRenderer = null;
-        // 预览渲染分辨率（DPI）：72 太低导致预览文字模糊；随系统屏幕 DPI 渲染更清晰，并设上限避免大文件内存过高
-        readonly int previewRenderDpi = Math.Max(96, Math.Min(144, (int)Math.Round(Graphics.FromHwnd(IntPtr.Zero).DpiX)));
+        // 预览渲染分辨率（DPI）：72 太低导致预览文字模糊；144 对屏幕预览做 1.5 倍超采样，
+        // 配合预览框的高质量缩放显示，文字边缘更平滑接近 Adobe 阅读器效果。
+        readonly int previewRenderDpi = 144;
         string previewRenderPath = "";
         Bitmap cachedTransparentStamp = null;
         string cachedTransparentStampKey = "";
@@ -109,7 +107,6 @@ namespace PDFQFZ
         const string AutoStampHistorySeparator = "||";
         private static readonly Random randomGenerator = new Random();
         private string strIniFilePath = $@"{Application.StartupPath}\config.ini";//获取INI文件路径
-        //private bool isSelectionCommitted = false; // 文档预览下拉列表框事件标记位
         private CancellationTokenSource cancellationTokenSource;//处理文件进度取消标记
         private CancellationTokenSource cts;//PDF文件异步处理取消标记
         private CancellationTokenSource previewOverlayCts;//印章预览异步取消标记
@@ -179,6 +176,7 @@ namespace PDFQFZ
         //程序加载
         private void Form1_Load(object sender, EventArgs e)
         {
+            this.SuspendLayout();
             if (File.Exists(strIniFilePath))//读取时先要判读INI文件是否存在
             {
                 IniFileHelper iniFileHelper = new IniFileHelper(strIniFilePath);
@@ -400,6 +398,7 @@ namespace PDFQFZ
 
             //预填上一次输入过的盖章文字
             InitAutoStampHistoryOnLoad();
+            this.ResumeLayout(true);
         }
 
         public static int ToIntOrDefault(string str, int defaultValue = 0)
@@ -550,8 +549,6 @@ namespace PDFQFZ
                             iniFileHelper.WriteIniString(section, "maxfgs", maxfgs.ToString());
                             iniFileHelper.WriteIniString(section, "yzIndex", yzIndex.ToString());
 
-                            //@loquat
-                            //iniFileHelper.WriteIniString(section, "signText", signText);
                             //去pdfGz里，成功才保存签名的3个参数
                         }
                     }
@@ -934,7 +931,7 @@ namespace PDFQFZ
             savingDotPhase = (savingDotPhase + 1) % 8;
             int dotCount = 3 + (savingDotPhase < 4 ? savingDotPhase : 7 - savingDotPhase);
             TimeSpan elapsed = DateTime.Now - savingStartTime;
-            SetOperationHint(string.Format("本文件较大，请耐心等待，正在生成盖章文件中{0}\r\n已用时 {1:mm\\:ss}",
+            SetOperationHint(string.Format("正在生成盖章文件中{0}\r\n已用时 {1:mm\\:ss}",
                 new string('.', dotCount), elapsed));
         }
 
@@ -1309,7 +1306,6 @@ namespace PDFQFZ
                             }
                             image.SetAbsolutePosition(xPos, yPos);
                             waterMarkContent.AddImage(image);
-                            //waterMarkContent.RestoreState();
                         }
                         startIndex += tmp;
                     }
@@ -1320,10 +1316,11 @@ namespace PDFQFZ
                 float stampXPos = 0, stampYPos = 0;
                 int signpage = numberOfPages;
 
-                if (StampRenderPolicy.ShouldRenderVisibleStamp(yzType))
+                // 页面章渲染：预览上实际放置了什么章，生成时就盖什么章（手动点击/指定范围/按文字盖章）。
+                // 判定只看预览里有没有已放置的章，不依赖印章类型选项——例如"全都不加印章"模式下
+                // 按文字盖章产生的章，同样要生成。
+                if (stampPlacements.Count > 0)
                 {
-                    if (IsPlacementStampType(yzType))
-                    {
                         List<int> placementPages = stampPlacements.DistinctPages(sourcepath).ToList();
                         signpage = placementPages.Count == 0 ? 1 : placementPages[placementPages.Count - 1];
                         StampPlacement signaturePlacement = qmType == 0
@@ -1395,63 +1392,6 @@ namespace PDFQFZ
                                 }
                             }
                         }
-                    }
-                    else
-                    {
-                        int no_page = 0;//不需要盖印章的页,0表示所有页都需要盖印章
-                        signpage = 0;
-
-                        for (int i = 1; i <= numberOfPages; i++)
-                        {
-                            if (!StampPlacementPolicy.ShouldRenderVisibleStampOnPage(i, no_page, signpage, qmType != 0))
-                            {
-                                continue;
-                            }
-
-                            waterMarkContent = pdfStamper.GetOverContent(i);//获取当前页内容
-                            int pageRotation = pdfReader.GetPageRotation(i);//获取指定页面的旋转度
-                            iTextSharp.text.Rectangle pageSize = pdfReader.GetPageSize(i);//获取当前页尺寸
-                            float wbl = uiTextPxValue;
-                            float hbl = 1 - uiTextPyValue;
-                            StampPlacement pagePlacement = stampPlacements.ForPage(sourcepath, i).FirstOrDefault();
-                            if (pagePlacement != null)
-                            {
-                                wbl = pagePlacement.X;
-                                hbl = 1f - pagePlacement.Y;
-                            }
-                            else if (uiCheckRandom)
-                            {
-                                Random random = new Random();
-                                int random_w = random.Next(-2, 3);
-                                int random_h = random.Next(-2, 3);
-                                if ((wbl + 0.01f * random_w) > 0f && (wbl + 0.01f * random_w) < 1f)
-                                {
-                                    wbl += 0.01f * random_w;
-                                }
-                                if ((hbl - 0.01f * random_h) > 0f && (hbl - 0.01f * random_h) < 1f)
-                                {
-                                    hbl -= 0.01f * random_h;
-                                }
-                            }
-
-                            img = iTextSharp.text.Image.GetInstance(imgYz, System.Drawing.Imaging.ImageFormat.Png);//创建一个图片对象
-                            img.RotationDegrees = GetRandomStampRotation(i, signpage);
-                            img.ScalePercent(sfbl);//设置图片比例
-                            imgW = img.Width * sfbl / 100f;
-                            imgH = img.Height * sfbl / 100f;
-                            CalculateStampPosition(
-                                pageRotation,
-                                pageSize,
-                                imgW,
-                                imgH,
-                                wbl,
-                                hbl,
-                                out stampXPos,
-                                out stampYPos);
-                            img.SetAbsolutePosition(stampXPos, stampYPos);
-                            waterMarkContent.AddImage(img);
-                        }
-                    }
                 }
 
                 if (qmType != 0)
@@ -1832,13 +1772,6 @@ namespace PDFQFZ
                         bt_gz.Enabled = true;//恢复盖章按钮
                         pathText.Text = fsd.FileName;
                         ResetPreviewDisplay();
-                        //foreach (var fileInfo in fileInfos)
-                        //{
-                        //    if (fileInfo.Extension == ".pdf")
-                        //    {
-                        //        dt.Rows.Add(new object[] { fileInfo.Name, fileInfo.FullName });
-                        //    }
-                        //}
                     }
                 }
                 else
@@ -1893,10 +1826,6 @@ namespace PDFQFZ
                     if (comboPDFlist.SelectedIndex != -1 && comboPDFlist.Items.Count > 0)//0是空白行,1才是选择的文件行
                     {
                         comboPDFlist.SelectedIndex = comboPDFlist.Items.Count - 1;
-                        //// 手动创建一个 EventArgs 对象
-                        //EventArgs eventArgs = new EventArgs();
-                        //// 调用 comboPDFlist_SelectionChangeCommitted 事件处理程序
-                        //comboPDFlist_SelectionChangeCommitted(comboPDFlist, eventArgs);
                     }
                 }
             }
@@ -2012,28 +1941,19 @@ namespace PDFQFZ
                 sw.Close();
                 sw.Dispose();
 
-                //// 保存当前选中的项
-                //object selectedItem = comboBoxYz.SelectedItem;
-
-                //// 更新ComboBox的数据源
-                //List<string> items = new List<string>();
-                //foreach (string item in comboBoxYz.Items)
-                //{
-                //    items.Add(item);
-                //}
-                //items.Reverse();
-                //comboBoxYz.DataSource = items;
-
-                // 将之前保存的选中项重新设置为ComboBox的选中项
-                //comboBoxYz.SelectedItem = selectedItem;
-
-                //// 将ComboBox的SelectedIndex设置为0
                 comboBoxYz.SelectedIndex = comboBoxYz.Items.Count - 1; //每次导入章图片后，并选定到最后一张，也就是最新导入的图片
             }
         }
         //预览图定位，根据页面中的单击位置添加印章。
         private void AddPreviewStampAtPoint(Point point)
         {
+            // 仅"手动点击盖章/指定范围页盖章"模式下，点击预览才放置印章；
+            // "全都不加印章"等模式下点击预览不产生任何章，避免误盖章。
+            if (!IsPlacementStampType(yzType))
+            {
+                return;
+            }
+
             try
             {
                 Point pt = point;
@@ -2085,11 +2005,6 @@ namespace PDFQFZ
         private static bool IsPlacementStampType(int stampType)
         {
             return stampType == CustomPlacementStampType || stampType == SpecifiedPageStampType;
-        }
-
-        private bool IsCurrentSpecifiedRangePage()
-        {
-            return specifiedPageRange != null && specifiedPageRange.Contains(imgStartPage);
         }
 
         private void AddPreviewStamp(float px, float py, string selectedStampPath)
@@ -2476,8 +2391,12 @@ namespace PDFQFZ
             bool removed;
             if (placement.BatchId > 0)
             {
+                // 按文字盖章的批次会记录在撤销栈中，据此区分弹窗文案（指定范围页盖章同样是批量章）
+                bool isAutoStamp = autoStampOperations.Any(o => o.BatchId == placement.BatchId);
                 DialogResult choice = MessageBox.Show(
-                    "这是由“指定范围页盖章”添加的批量印章。点击“是”删除整个批次，点击“否”仅删除当前页，点击“取消”保留。",
+                    isAutoStamp
+                        ? "这是由“按文字盖章”添加的印章。点击“是”删除整个批次，点击“否”仅删除这一枚，点击“取消”保留。"
+                        : "这是由“指定范围页盖章”添加的批量印章。点击“是”删除整个批次，点击“否”仅删除当前页，点击“取消”保留。",
                     "删除印章",
                     MessageBoxButtons.YesNoCancel,
                     MessageBoxIcon.Question);
@@ -2487,7 +2406,16 @@ namespace PDFQFZ
                 }
                 else if (choice == DialogResult.No)
                 {
-                    removed = stampPlacements.RemoveBatchOnPage(previewPath, imgStartPage, placement.BatchId) > 0;
+                    // 按文字盖章："否"只删除双击的这一枚章；指定范围页盖章："否"删除当前页本批次。
+                    // 用双击章所在页而不是预览当前页，滚动预览下也能删对页。
+                    if (isAutoStamp)
+                    {
+                        removed = stampPlacements.Remove(placementId);
+                    }
+                    else
+                    {
+                        removed = stampPlacements.RemoveBatchOnPage(previewPath, placement.Page, placement.BatchId) > 0;
+                    }
                 }
                 else
                 {
@@ -2513,6 +2441,34 @@ namespace PDFQFZ
 
                 RefreshPreviewOverlays();
             }
+        }
+
+        // 删除指定页上所有"按文字盖章"的章（不限批次），并清理已无残留的按文字撤销记录。
+        private int RemoveAllAutoStampsOnPage(int page)
+        {
+            HashSet<int> autoBatchIds = new HashSet<int>(autoStampOperations.Select(o => o.BatchId));
+            List<StampPlacement> toRemove = stampPlacements
+                .ForPage(previewPath, page)
+                .Where(p => autoBatchIds.Contains(p.BatchId))
+                .ToList();
+            foreach (StampPlacement item in toRemove)
+            {
+                stampPlacements.Remove(item.Id);
+            }
+
+            // 清理已无残留的按文字批次，避免"撤销放置"撤销到不存在的批次
+            foreach (int batchId in toRemove.Select(p => p.BatchId).Distinct().ToList())
+            {
+                if (!stampPlacements.HasBatch(previewPath, batchId))
+                {
+                    autoStampOperations.RemoveAll(o => o.BatchId == batchId);
+                }
+            }
+            if (undoAutoStampButton != null)
+            {
+                undoAutoStampButton.Enabled = autoStampOperations.Count > 0;
+            }
+            return toRemove.Count;
         }
 
         private void pathText_DragEnter(object sender, DragEventArgs e)
@@ -2579,11 +2535,6 @@ namespace PDFQFZ
                     if (comboPDFlist.SelectedIndex != -1 && comboPDFlist.Items.Count > 0)//0是空白行
                     {
                         comboPDFlist.SelectedIndex = comboPDFlist.Items.Count - 1;
-
-                        //// 手动创建一个 EventArgs 对象
-                        //EventArgs eventArgs = new EventArgs();
-                        //// 调用 comboPDFlist_SelectionChangeCommitted 事件处理程序
-                        //comboPDFlist_SelectionChangeCommitted(comboPDFlist, eventArgs);
                     }
 
                 }

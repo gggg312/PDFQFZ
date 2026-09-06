@@ -1,0 +1,139 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{B7E3F0A2-4D11-4E8B-9A7C-1F6C2B8D3E4A}</ProjectGuid>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>PDFQFZ.WPF</RootNamespace>
+    <AssemblyName>PDFQFZ.WPF</AssemblyName>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <TargetFrameworkProfile />
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE;UNSAFE_MODE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <Prefer32Bit>false</Prefer32Bit>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationManifest>Properties\app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="System.Xaml" />
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+  <ItemGroup>
+    <ApplicationDefinition Include="App.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </ApplicationDefinition>
+    <Page Include="MainWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="PageRangeDialog.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Themes\Styles.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="App.xaml.cs">
+      <DependentUpon>App.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="MainWindow.xaml.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="PageRangeDialog.xaml.cs">
+      <DependentUpon>PageRangeDialog.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Services\StampEngine.cs" />
+    <Compile Include="Services\AppConfig.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="..\PDFQFZ\Library\CommandLineFileLoader.cs" Link="Library\CommandLineFileLoader.cs" />
+    <Compile Include="..\PDFQFZ\Library\IniFileHelper.cs" Link="Library\IniFileHelper.cs" />
+    <Compile Include="..\PDFQFZ\Library\OutputFileNamingPolicy.cs" Link="Library\OutputFileNamingPolicy.cs" />
+    <Compile Include="..\PDFQFZ\Library\PageCache.cs" Link="Library\PageCache.cs" />
+    <Compile Include="..\PDFQFZ\Library\IPdfDocumentRenderer.cs" Link="Library\IPdfDocumentRenderer.cs" />
+    <Compile Include="..\PDFQFZ\Library\PdfiumDocumentRenderer.cs" Link="Library\PdfiumDocumentRenderer.cs" />
+    <Compile Include="..\PDFQFZ\Library\PdfRenderSizeCalculator.cs" Link="Library\PdfRenderSizeCalculator.cs" />
+    <Compile Include="..\PDFQFZ\Library\PageRange.cs" Link="Library\PageRange.cs" />
+    <Compile Include="..\PDFQFZ\Library\StampPlacementPolicy.cs" Link="Library\StampPlacementPolicy.cs" />
+    <Compile Include="..\PDFQFZ\Library\StampRenderPolicy.cs" Link="Library\StampRenderPolicy.cs" />
+    <Compile Include="..\PDFQFZ\Library\SeamStampPolicy.cs" Link="Library\SeamStampPolicy.cs" />
+    <Compile Include="..\PDFQFZ\Library\StampPlacement.cs" Link="Library\StampPlacement.cs" />
+    <Compile Include="..\PDFQFZ\Library\PreviewOverlayRequestGate.cs" Link="Library\PreviewOverlayRequestGate.cs" />
+    <Compile Include="..\PDFQFZ\Library\PreviewPdfPreparation.cs" Link="Library\PreviewPdfPreparation.cs" />
+    <Compile Include="..\PDFQFZ\Library\PreviewStampLayout.cs" Link="Library\PreviewStampLayout.cs" />
+    <Compile Include="..\PDFQFZ\Library\WhiteTransparencyHelper.cs" Link="Library\WhiteTransparencyHelper.cs" />
+    <Compile Include="..\PDFQFZ\Library\PdfTextSearcher.cs" Link="Library\PdfTextSearcher.cs" />
+    <Compile Include="..\PDFQFZ\Library\AutoStampPositionCalculator.cs" Link="Library\AutoStampPositionCalculator.cs" />
+    <Compile Include="..\PDFQFZ\Library\PreviewValueSanitizer.cs" Link="Library\PreviewValueSanitizer.cs" />
+    <Compile Include="..\PDFQFZ\Library\UiInteractionPolicies.cs" Link="Library\UiInteractionPolicies.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Properties\app.manifest" />
+    <Resource Include="app.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Costura.Fody">
+      <Version>6.2.0</Version>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="iTextSharp">
+      <Version>5.5.13.6</Version>
+    </PackageReference>
+    <PackageReference Include="PdfiumViewer.Updated">
+      <Version>2.14.5</Version>
+    </PackageReference>
+    <PackageReference Include="bblanchon.PDFium.Win32" GeneratePathProperty="true">
+      <Version>153.0.8009</Version>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="$(Pkgbblanchon_PDFium_Win32)\runtimes\win-x86\native\pdfium.dll">
+      <Link>costura-win-x86\pdfium.dll</Link>
+      <LogicalName>costura_win_x86.pdfium.dll</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(Pkgbblanchon_PDFium_Win32)\runtimes\win-x64\native\pdfium.dll">
+      <Link>costura-win-x64\pdfium.dll</Link>
+      <LogicalName>costura_win_x64.pdfium.dll</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

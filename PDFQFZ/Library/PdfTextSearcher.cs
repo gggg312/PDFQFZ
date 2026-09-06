@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -269,6 +270,8 @@ namespace PDFQFZ.Library
     internal sealed class PdfTextMatch
     {
         public int PageIndex { get; set; }        // 0 起始页码
+        public int StartChar { get; set; }        // 该匹配在页面文字流中的起始字符索引（用于读取上下文）
+        public int CharCount { get; set; }        // 匹配文字的字符数
         public double Left { get; set; }
         public double Right { get; set; }
         public double Bottom { get; set; }
@@ -411,6 +414,132 @@ namespace PDFQFZ.Library
         }
 
         /// <summary>
+        /// 在全部页面中查找指定文字，并按“上下文关键词”过滤：只有匹配文字前后 contextRange 字范围内
+        /// 出现指定关键词时才保留。requireAll=true 表示需同时出现所有关键词（且），false 表示出现任一即可（或）。
+        /// contextKeywords 为空或全空白时退化为不过滤，等同于 FindAll(text, matchCase)。
+        /// </summary>
+        public List<PdfTextMatch> FindAll(string text, string[] contextKeywords, int contextRange, bool requireAll, bool matchCase = false)
+        {
+            // 关键词为空 → 退化为不过滤
+            if (contextKeywords == null || contextKeywords.Length == 0)
+            {
+                return FindAll(text, matchCase);
+            }
+            string[] keywords = contextKeywords
+                .Where(k => !string.IsNullOrWhiteSpace(k))
+                .Select(k => k.Trim())
+                .ToArray();
+            if (keywords.Length == 0)
+            {
+                return FindAll(text, matchCase);
+            }
+            if (contextRange < 1) contextRange = 1;
+
+            List<PdfTextMatch> results = new List<PdfTextMatch>();
+
+            if (string.IsNullOrEmpty(text))
+            {
+                return results;
+            }
+
+            lock (syncRoot)
+            {
+                ThrowIfDisposed();
+
+                int pageCount = PdfiumTextNative.GetPageCount(document);
+                if (pageCount < 1)
+                {
+                    return results;
+                }
+
+                for (int pageIndex = 0; pageIndex < pageCount; pageIndex++)
+                {
+                    IntPtr page = PdfiumTextNative.LoadPage(document, pageIndex);
+                    if (page == IntPtr.Zero)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        double pageWidth = PdfiumTextNative.GetPageWidth(page);
+                        double pageHeight = PdfiumTextNative.GetPageHeight(page);
+                        if (pageWidth <= 0 || pageHeight <= 0)
+                        {
+                            continue;
+                        }
+
+                        IntPtr textPage = PdfiumTextNative.TextLoadPage(page);
+                        if (textPage == IntPtr.Zero)
+                        {
+                            continue;
+                        }
+
+                        try
+                        {
+                            int totalChars = PdfiumTextNative.TextCountChars(textPage);
+                            IntPtr search = PdfiumTextNative.TextFindStart(textPage, text, matchCase, 0);
+                            if (search == IntPtr.Zero)
+                            {
+                                continue;
+                            }
+
+                            try
+                            {
+                                while (PdfiumTextNative.TextFindNext(search))
+                                {
+                                    int startChar = PdfiumTextNative.TextGetSchResultIndex(search);
+                                    int charCount = PdfiumTextNative.TextGetSchCount(search);
+                                    if (charCount <= 0)
+                                    {
+                                        continue;
+                                    }
+
+                                    // 读取上下文：前 contextRange 字 + 匹配文字 + 后 contextRange 字，自动截断到页面边界
+                                    int ctxStart = Math.Max(0, startChar - contextRange);
+                                    int ctxEnd = Math.Min(totalChars, startChar + charCount + contextRange);
+                                    string context = ctxEnd > ctxStart
+                                        ? PdfiumTextNative.TextGetText(textPage, ctxStart, ctxEnd - ctxStart)
+                                        : string.Empty;
+
+                                    // 关键词匹配：或 / 且
+                                    bool hit = requireAll
+                                        ? keywords.All(kw => context.IndexOf(kw, StringComparison.OrdinalIgnoreCase) >= 0)
+                                        : keywords.Any(kw => context.IndexOf(kw, StringComparison.OrdinalIgnoreCase) >= 0);
+                                    if (!hit)
+                                    {
+                                        continue;
+                                    }
+
+                                    PdfTextMatch match = BuildMatch(
+                                        textPage, pageIndex, startChar, charCount, pageWidth, pageHeight);
+                                    if (match != null)
+                                    {
+                                        results.Add(match);
+                                    }
+                                }
+                            }
+                            finally
+                            {
+                                PdfiumTextNative.TextFindClose(search);
+                            }
+                        }
+                        finally
+                        {
+                            PdfiumTextNative.TextClosePage(textPage);
+                        }
+                    }
+                    finally
+                    {
+                        PdfiumTextNative.ClosePage(page);
+                    }
+                }
+            }
+
+            return results;
+        }
+
+        /// <summary>
         /// 判断文档是否含可搜索的文字层（任一页有字符即返回 true）。
         /// 用于区分图片型 PDF（扫描件/纯图片，无文字层）与文字型 PDF。
         /// </summary>
@@ -500,6 +629,8 @@ namespace PDFQFZ.Library
             return new PdfTextMatch
             {
                 PageIndex = pageIndex,
+                StartChar = startChar,
+                CharCount = charCount,
                 Left = left,
                 Right = right,
                 Bottom = bottom,

@@ -110,11 +110,11 @@ namespace PDFQFZ.Library
             string actionHint;
             if (specifiedRangePending)
             {
-                actionHint = "已跳转至指定范围最后一页。单击页面设置盖章位置；按住左键拖动可查看页面；盖章后双击印章可删除。";
+                actionHint = "已跳转至指定范围最后一页。单击页面设置盖章位置；按住左键拖动可查看页面；右键印章可删除。";
             }
             else if (pageStampEnabled)
             {
-                actionHint = "单击页面添加印章；按住左键拖动页面；双击已有印章可删除。";
+                actionHint = "单击页面添加印章；按住左键拖动页面；右键已有印章可删除。";
             }
             else
             {

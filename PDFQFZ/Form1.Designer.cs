@@ -38,7 +38,6 @@ namespace PDFQFZ
         {
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Form1));
             this.bt_gz = new System.Windows.Forms.Button();
-            this.folderBrowserDialog1 = new System.Windows.Forms.FolderBrowserDialog();
             this.pathText = new System.Windows.Forms.TextBox();
             this.SelectPath = new System.Windows.Forms.Button();
             this.textBCpath = new System.Windows.Forms.TextBox();
@@ -52,10 +51,7 @@ namespace PDFQFZ
             this.textPx = new System.Windows.Forms.TextBox();
             this.textPy = new System.Windows.Forms.TextBox();
             this.textCC = new System.Windows.Forms.TextBox();
-            this.label7 = new System.Windows.Forms.Label();
             this.comboBoxWZ = new System.Windows.Forms.ComboBox();
-            this.label6 = new System.Windows.Forms.Label();
-            this.label8 = new System.Windows.Forms.Label();
             this.textWzbl = new System.Windows.Forms.TextBox();
             this.comboType = new System.Windows.Forms.ComboBox();
             this.comboQfz = new System.Windows.Forms.ComboBox();
@@ -69,12 +65,10 @@ namespace PDFQFZ
             this.buttonUp = new System.Windows.Forms.Button();
             this.labelPage = new System.Windows.Forms.Label();
             this.pictureBox2 = new System.Windows.Forms.PictureBox();
-            this.pictureBox1 = new System.Windows.Forms.PictureBox();
+            this.pictureBox1 = new PDFQFZ.Library.HighQualityPictureBox();
             this.textRotation = new System.Windows.Forms.TextBox();
             this.label10 = new System.Windows.Forms.Label();
-            this.label9 = new System.Windows.Forms.Label();
             this.textOpacity = new System.Windows.Forms.TextBox();
-            this.label12 = new System.Windows.Forms.Label();
             this.comboDJ = new System.Windows.Forms.ComboBox();
             this.isSaveSources = new System.Windows.Forms.CheckBox();
             this.comboBoxYz = new System.Windows.Forms.ComboBox();
@@ -250,16 +244,6 @@ namespace PDFQFZ
             this.textCC.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.previewUnsigned_KeyPress);
             this.textCC.Leave += new System.EventHandler(this.previewSize_Leave);
             // 
-            // label7
-            // 
-            this.label7.AutoSize = true;
-            this.label7.Font = new System.Drawing.Font("微软雅黑", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.label7.Location = new System.Drawing.Point(126, 292);
-            this.label7.Name = "label7";
-            this.label7.Size = new System.Drawing.Size(35, 20);
-            this.label7.TabIndex = 20;
-            this.label7.Text = "mm";
-            // 
             // comboBoxWZ
             // 
             this.comboBoxWZ.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
@@ -274,26 +258,6 @@ namespace PDFQFZ
             this.comboBoxWZ.Name = "comboBoxWZ";
             this.comboBoxWZ.Size = new System.Drawing.Size(65, 28);
             this.comboBoxWZ.TabIndex = 22;
-            // 
-            // label6
-            // 
-            this.label6.AutoSize = true;
-            this.label6.Font = new System.Drawing.Font("微软雅黑", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.label6.Location = new System.Drawing.Point(9, 325);
-            this.label6.Name = "label6";
-            this.label6.Size = new System.Drawing.Size(79, 20);
-            this.label6.TabIndex = 23;
-            this.label6.Text = "骑缝章位置";
-            // 
-            // label8
-            // 
-            this.label8.AutoSize = true;
-            this.label8.Font = new System.Drawing.Font("微软雅黑", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.label8.Location = new System.Drawing.Point(213, 325);
-            this.label8.Name = "label8";
-            this.label8.Size = new System.Drawing.Size(21, 20);
-            this.label8.TabIndex = 25;
-            this.label8.Text = "%";
             // 
             // textWzbl
             // 
@@ -478,16 +442,6 @@ namespace PDFQFZ
             this.label10.TabIndex = 38;
             this.label10.Text = "旋转";
             // 
-            // label9
-            // 
-            this.label9.AutoSize = true;
-            this.label9.Font = new System.Drawing.Font("微软雅黑", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.label9.Location = new System.Drawing.Point(297, 292);
-            this.label9.Name = "label9";
-            this.label9.Size = new System.Drawing.Size(15, 20);
-            this.label9.TabIndex = 40;
-            this.label9.Text = "°";
-            // 
             // textOpacity
             // 
             this.textOpacity.Font = new System.Drawing.Font("微软雅黑", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
@@ -499,16 +453,6 @@ namespace PDFQFZ
             this.textOpacity.TextChanged += new System.EventHandler(this.previewOverlayStyle_Changed);
             this.textOpacity.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.previewUnsigned_KeyPress);
             this.textOpacity.Leave += new System.EventHandler(this.previewOpacity_Leave);
-            // 
-            // label12
-            // 
-            this.label12.AutoSize = true;
-            this.label12.Font = new System.Drawing.Font("微软雅黑", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.label12.Location = new System.Drawing.Point(389, 326);
-            this.label12.Name = "label12";
-            this.label12.Size = new System.Drawing.Size(63, 20);
-            this.label12.TabIndex = 41;
-            this.label12.Text = "%不透明";
             // 
             // comboDJ
             // 
@@ -698,8 +642,6 @@ namespace PDFQFZ
             this.Controls.Add(this.isSaveSources);
             this.Controls.Add(this.comboDJ);
             this.Controls.Add(this.textOpacity);
-            this.Controls.Add(this.label12);
-            this.Controls.Add(this.label9);
             this.Controls.Add(this.txtAllow);
             this.Controls.Add(this.textRotation);
             this.Controls.Add(this.label10);
@@ -715,11 +657,8 @@ namespace PDFQFZ
             this.Controls.Add(this.comboQmtype);
             this.Controls.Add(this.comboQfz);
             this.Controls.Add(this.comboType);
-            this.Controls.Add(this.label8);
             this.Controls.Add(this.textWzbl);
-            this.Controls.Add(this.label6);
             this.Controls.Add(this.comboBoxWZ);
-            this.Controls.Add(this.label7);
             this.Controls.Add(this.textCC);
             this.Controls.Add(this.textPy);
             this.Controls.Add(this.textPx);
@@ -752,7 +691,6 @@ namespace PDFQFZ
         #endregion
 
         private System.Windows.Forms.Button bt_gz;
-        private System.Windows.Forms.FolderBrowserDialog folderBrowserDialog1;
         private System.Windows.Forms.TextBox pathText;
         private System.Windows.Forms.Button SelectPath;
         private System.Windows.Forms.TextBox textBCpath;
@@ -767,10 +705,7 @@ namespace PDFQFZ
         private System.Windows.Forms.TextBox textPx;
         private System.Windows.Forms.TextBox textPy;
         private System.Windows.Forms.TextBox textCC;
-        private System.Windows.Forms.Label label7;
         private System.Windows.Forms.ComboBox comboBoxWZ;
-        private System.Windows.Forms.Label label6;
-        private System.Windows.Forms.Label label8;
         private System.Windows.Forms.TextBox textWzbl;
         private System.Windows.Forms.ComboBox comboType;
         private System.Windows.Forms.ComboBox comboQfz;
@@ -786,9 +721,7 @@ namespace PDFQFZ
         private System.Windows.Forms.PictureBox pictureBox2;
         private System.Windows.Forms.TextBox textRotation;
         private System.Windows.Forms.Label label10;
-        private System.Windows.Forms.Label label9;
         private System.Windows.Forms.TextBox textOpacity;
-        private System.Windows.Forms.Label label12;
         private System.Windows.Forms.ComboBox comboDJ;
         private System.Windows.Forms.CheckBox isSaveSources;
         private System.Windows.Forms.ComboBox comboBoxYz;

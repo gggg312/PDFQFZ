@@ -130,6 +130,89 @@ public sealed class PdfTextSearcherTests
     }
 
     [Fact]
+    public void FindAll_WithContextFilter_OrMode_KeepsOnlyMatchesNearKeyword()
+    {
+        // 第1页：公司名附近有"盖章"；第2页：公司名附近无"盖章"
+        string path = CreateChineseTwoPagePdf();
+        try
+        {
+            using (PdfTextSearcher searcher = new PdfTextSearcher(path))
+            {
+                // 不过滤：两页都命中
+                List<PdfTextMatch> all = searcher.FindAll(CompanyName);
+                Assert.Equal(2, all.Count);
+
+                // 或模式 + 关键词"盖章"：只有第1页命中
+                List<PdfTextMatch> filtered = searcher.FindAll(CompanyName, new[] { SealWord }, 50, false);
+                Assert.Single(filtered);
+                Assert.Equal(0, filtered[0].PageIndex);
+
+                // 关键词留空 → 退化为不过滤
+                List<PdfTextMatch> emptyKw = searcher.FindAll(CompanyName, new string[0], 50, false);
+                Assert.Equal(2, emptyKw.Count);
+
+                // 关键词全空白 → 退化为不过滤
+                List<PdfTextMatch> blankKw = searcher.FindAll(CompanyName, new[] { "  ", "" }, 50, false);
+                Assert.Equal(2, blankKw.Count);
+
+                // 不存在的关键词 → 全部过滤掉
+                List<PdfTextMatch> noHit = searcher.FindAll(CompanyName, new[] { "不存在的词" }, 50, false);
+                Assert.Empty(noHit);
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void FindAll_WithContextFilter_AndMode_RequiresAllKeywords()
+    {
+        string path = CreateChineseTwoPagePdf();
+        try
+        {
+            using (PdfTextSearcher searcher = new PdfTextSearcher(path))
+            {
+                // 且模式："盖章"存在但"公章"不存在 → 全部过滤掉
+                List<PdfTextMatch> filtered = searcher.FindAll(CompanyName, new[] { SealWord, "公章" }, 50, true);
+                Assert.Empty(filtered);
+
+                // 且模式：两个都存在的关键词（公司名本身包含"公司"和"科技"）→ 命中
+                List<PdfTextMatch> bothHit = searcher.FindAll(CompanyName, new[] { "公司", "科技" }, 50, true);
+                Assert.Equal(2, bothHit.Count);
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void FindAll_WithContextFilter_StoresStartCharAndCharCount()
+    {
+        string path = CreateChineseTwoPagePdf();
+        try
+        {
+            using (PdfTextSearcher searcher = new PdfTextSearcher(path))
+            {
+                List<PdfTextMatch> matches = searcher.FindAll(CompanyName);
+                Assert.Equal(2, matches.Count);
+                foreach (PdfTextMatch m in matches)
+                {
+                    Assert.True(m.StartChar >= 0, "StartChar 不应为负");
+                    Assert.Equal(CompanyName.Length, m.CharCount);
+                }
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void HasAnyText_TextPdf_ReturnsTrue()
     {
         string path = CreateChineseTwoPagePdf();

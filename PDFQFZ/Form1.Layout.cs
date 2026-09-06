@@ -11,9 +11,7 @@ namespace PDFQFZ
     public partial class Form1
     {
         private readonly Dictionary<RadioButton, int> fileModeRadios = new Dictionary<RadioButton, int>();
-        private readonly Dictionary<RadioButton, int> seamModeRadios = new Dictionary<RadioButton, int>();
-        private readonly Dictionary<RadioButton, int> pageStampRadios = new Dictionary<RadioButton, int>();
-        private readonly Dictionary<RadioButton, int> outputModeRadios = new Dictionary<RadioButton, int>();
+        private ComboBox pageStampCombo;
         private SplitContainer mainSplit;
         private Panel previewStage;
         private TableLayoutPanel previewViewport;
@@ -92,6 +90,7 @@ namespace PDFQFZ
             ClientSize = new Size(1500, 930);
             MinimumSize = SizeFromClientSize(new Size(1500, 930));
             AutoScaleMode = AutoScaleMode.Dpi;
+            DoubleBuffered = true;   // 减少复杂窗体首次显示的重绘开销
             Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Regular, GraphicsUnit.Point, 134);
 
             Controls.Clear();
@@ -122,6 +121,73 @@ namespace PDFQFZ
             Shown += Form1_InitialLayout;
             KeyDown += PreviewNavigation_KeyDown;
             ResumeLayout(true);
+            ApplyPerformanceOptimizations(this);
+        }
+
+        /// <summary>
+        /// 递归优化控件显示性能：
+        /// 1) 表格布局：先按当前内容计算出正确尺寸并固定（AutoSize=false），
+        ///    避免窗口弹出时对所有表格逐项测量尺寸，显著加快启动；
+        ///    与直接关掉 AutoSize 不同，这里先取到正确尺寸再固定，因此布局不会塌陷。
+        /// 2) 为所有控件开启双缓冲，减少复杂窗体显示/缩放时的重绘开销。
+        /// </summary>
+        private static void ApplyPerformanceOptimizations(Control root)
+        {
+            try
+            {
+                foreach (Control child in root.Controls)
+                {
+                    FixAutoSizeTableLayout(child);
+                    typeof(Control).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                        ?.SetValue(child, true, null);
+                    ApplyPerformanceOptimizations(child);
+                }
+            }
+            catch
+            {
+                // 个别控件不支持时忽略，不影响其余控件
+            }
+        }
+
+        /// <summary>
+        /// 对仍处于自动适应状态的表格布局：读取其当前应有的尺寸并固定。
+        /// Dock=Fill 的表格由父容器决定尺寸，无需处理。
+        /// </summary>
+        private static void FixAutoSizeTableLayout(Control c)
+        {
+            if (!(c is System.Windows.Forms.TableLayoutPanel tl) || !tl.AutoSize || tl.Dock == DockStyle.Fill)
+            {
+                return;
+            }
+            // 折叠区块（印章参数 / 其他设置）需要随展开/收起动态伸缩，不能固定高度
+            if (tl.Tag is string tag && tag == "Collapsible")
+            {
+                return;
+            }
+            try
+            {
+                tl.SuspendLayout();
+                Size pref = tl.GetPreferredSize(new Size(0, 0));
+                if (pref.Width <= 0 || pref.Height <= 0)
+                {
+                    return;
+                }
+                tl.AutoSize = false;
+                if (tl.Dock == DockStyle.Top)
+                {
+                    // Dock=Top：宽度由父容器决定，只需固定高度（内容的高度）
+                    tl.Height = pref.Height;
+                }
+                else
+                {
+                    tl.Size = pref;
+                }
+                tl.ResumeLayout(false);
+            }
+            catch
+            {
+                // 个别布局取不到尺寸时保持原状
+            }
         }
 
         private void BuildLeftLayout(Control host)
@@ -135,170 +201,203 @@ namespace PDFQFZ
                 AutoScroll = true,
                 Padding = new Padding(12, 9, 12, 24),
                 ColumnCount = 1,
-                RowCount = 5
+                RowCount = 7
             };
             leftLayout = layout;
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            // Keep the settings sections compact when the window grows. The help
-            // panel is the flexible region so controls do not drift apart.
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44F));
+            // 折叠块（印章参数 / 其他设置）：AutoSize，展开顶开提示区、折叠让提示区升高
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52F));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             border.Controls.Add(layout);
 
+            layout.SuspendLayout();
             layout.Controls.Add(BuildFileSection(), 0, 0);
             layout.Controls.Add(BuildStampModeSection(), 0, 1);
-            layout.Controls.Add(BuildSettingsSection(), 0, 2);
+            layout.Controls.Add(BuildAutoStampSection(), 0, 2);
+            layout.Controls.Add(BuildSealParamsSection(), 0, 3);
+            layout.Controls.Add(BuildOtherSection(), 0, 4);
 
             Panel actionPanel = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0), Padding = new Padding(0, 4, 0, 0) };
-            bt_gz.Size = new Size(96, 36);
+            bt_gz.Text = "盖章并生成文件";
+            bt_gz.Size = new Size(150, 36);
             bt_gz.Anchor = AnchorStyles.None;
             actionPanel.Controls.Add(bt_gz);
             actionPanel.Resize += (sender, args) =>
             {
                 bt_gz.Location = new Point((actionPanel.ClientSize.Width - bt_gz.Width) / 2, 4);
             };
-            layout.Controls.Add(actionPanel, 0, 3);
+            layout.Controls.Add(actionPanel, 0, 5);
 
             log.Dock = DockStyle.Fill;
             log.Margin = new Padding(0, 0, 20, 18);
             log.ScrollBars = ScrollBars.Vertical;
             log.WordWrap = true;
             log.MinimumSize = new Size(0, 150);
-            layout.Controls.Add(log, 0, 4);
+            layout.Controls.Add(log, 0, 6);
+            layout.ResumeLayout(true);
         }
 
         private Control BuildFileSection()
         {
             TableLayoutPanel section = CreateSectionTable();
             section.Padding = new Padding(0, 8, 0, 9);
+            section.SuspendLayout();
 
-            Label heading = CreateSectionHeading("文件");
+            Label heading = CreateSectionHeading("源文件");
             section.Controls.Add(heading, 0, 0);
-            section.SetRowSpan(heading, 4);
+            section.SetRowSpan(heading, 5);
 
             FlowLayoutPanel modeRow = CreateFlowRow();
             modeRow.Controls.Add(CreateModeRadio("文件模式", 1, fileModeRadios));
             modeRow.Controls.Add(CreateModeRadio("目录模式", 0, fileModeRadios));
             section.Controls.Add(modeRow, 1, 0);
 
-            section.Controls.Add(BuildPathField(label1, SelectPath, pathText), 1, 1);
-            section.Controls.Add(BuildPathField(label2, OutPath, textBCpath), 1, 2);
-            section.Controls.Add(BuildStampFileField(), 1, 3);
+            label1.Text = "源 PDF";
+            label2.Text = "保存目录";
+            label3.Text = "印章文件";
+            section.Controls.Add(BuildLeftRightField(label1, pathText, SelectPath), 1, 1);
+            section.Controls.Add(BuildLeftRightField(label2, textBCpath, OutPath), 1, 2);
+            section.Controls.Add(BuildLeftRightField(label3, comboBoxYz, GzPath), 1, 3);
+
+            // 保存在源文件文件夹下（保留既有功能）
+            isSaveSources.Margin = new Padding(0, 2, 0, 0);
+            section.Controls.Add(isSaveSources, 1, 4);
+            section.ResumeLayout(false);
             return section;
         }
 
-        private Control BuildPathField(Label label, Button button, TextBox textBox)
+        /// <summary>
+        /// 左右模式字段：标签 | 输入框（占满） | 按钮，单行排布，节省垂直空间。
+        /// </summary>
+        private Control BuildLeftRightField(Label label, Control field, Button button)
         {
-            TableLayoutPanel field = new TableLayoutPanel
+            TableLayoutPanel row = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
-                ColumnCount = 2,
-                RowCount = 2,
-                Margin = new Padding(0, 2, 22, 2)
+                ColumnCount = 3,
+                RowCount = 1,
+                Margin = new Padding(0, 4, 0, 4)
             };
-            field.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64F));
-            field.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            field.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            field.RowStyles.Add(new RowStyle(SizeType.Absolute, 31F));
-            label.Dock = DockStyle.Fill;
-            label.AutoSize = true;
-            label.Margin = new Padding(0);
-            field.Controls.Add(label, 0, 0);
-            field.SetColumnSpan(label, 2);
-            button.Dock = DockStyle.Fill;
-            button.Margin = new Padding(0, 2, 7, 1);
-            textBox.Dock = DockStyle.Fill;
-            textBox.Margin = new Padding(0, 2, 0, 1);
-            field.Controls.Add(button, 0, 1);
-            field.Controls.Add(textBox, 1, 1);
-            return field;
-        }
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64F));
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
-        private Control BuildStampFileField()
-        {
-            TableLayoutPanel field = new TableLayoutPanel
-            {
-                Dock = DockStyle.Top,
-                AutoSize = true,
-                ColumnCount = 2,
-                RowCount = 2,
-                Margin = new Padding(0, 2, 22, 2)
-            };
-            field.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            field.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64F));
-            label3.Dock = DockStyle.Fill;
-            label3.AutoSize = true;
-            label3.Margin = new Padding(0);
-            field.Controls.Add(label3, 0, 0);
-            field.SetColumnSpan(label3, 2);
-            comboBoxYz.Dock = DockStyle.Fill;
-            comboBoxYz.Margin = new Padding(0, 2, 7, 1);
-            GzPath.Dock = DockStyle.Fill;
-            GzPath.Margin = new Padding(0, 2, 0, 1);
-            field.Controls.Add(comboBoxYz, 0, 1);
-            field.Controls.Add(GzPath, 1, 1);
-            return field;
+            label.AutoSize = true;
+            label.Dock = DockStyle.Fill;
+            label.TextAlign = ContentAlignment.MiddleLeft;
+            label.Margin = new Padding(0);
+
+            field.Dock = DockStyle.Fill;
+            field.Margin = new Padding(0, 0, 8, 0);
+
+            button.AutoSize = true;
+            button.Height = 26;
+            button.Margin = new Padding(0);
+
+            row.Controls.Add(label, 0, 0);
+            row.Controls.Add(field, 1, 0);
+            row.Controls.Add(button, 2, 0);
+            return row;
         }
 
         private Control BuildStampModeSection()
         {
             TableLayoutPanel section = CreateSectionTable();
             section.Padding = new Padding(0, 10, 0, 10);
-            section.CellBorderStyle = TableLayoutPanelCellBorderStyle.None;
+            section.SuspendLayout();
 
-            Label heading = CreateSectionHeading("盖章");
+            Label heading = CreateSectionHeading("盖章方式");
             section.Controls.Add(heading, 0, 0);
 
-            TableLayoutPanel groups = new TableLayoutPanel
+            // 页面盖章下拉：只暴露"不盖/手动点击"两个真实入口，指定范围页盖章由按钮触发。
+            // 内部业务仍以 comboYz.SelectedIndex 为准（0=不盖、1=手动、2=指定范围），
+            // 此处仅做 0/1 映射显示，指定范围模式下显示为"手动点击盖章"。
+            pageStampCombo = new ComboBox
             {
-                Dock = DockStyle.Fill,
-                AutoSize = true,
-                ColumnCount = 3,
-                RowCount = 1,
-                Margin = new Padding(0)
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Width = 128,
+                Margin = new Padding(0, 0, 8, 0),
+                DropDownHeight = 120
             };
-            groups.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33F));
-            groups.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34F));
-            groups.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33F));
-
-            groups.Controls.Add(BuildRadioColumn("骑缝章", new[]
-            {
-                CreateModeRadio("不加骑缝章", 1, seamModeRadios),
-                CreateModeRadio("加盖骑缝章", 0, seamModeRadios),
-                CreateModeRadio("单页骑缝章", 2, seamModeRadios),
-                CreateModeRadio("双页骑缝章", 3, seamModeRadios),
-                CreateModeRadio("随意骑缝章", 4, seamModeRadios)
-            }), 0, 0);
+            pageStampCombo.Items.Add("不盖页面章");
+            pageStampCombo.Items.Add("手动点击盖章");
+            pageStampCombo.SelectedIndexChanged += PageStampCombo_SelectedIndexChanged;
 
             specifiedPageButton = new Button
             {
                 AutoSize = true,
                 Text = "指定范围页盖章",
-                Margin = new Padding(0, 2, 0, 0)
+                Margin = new Padding(0)
             };
             specifiedPageButton.Click += SpecifiedPageButton_Click;
-            groups.Controls.Add(BuildRadioColumn("页面盖章", new Control[]
-            {
-                CreateModeRadio("不盖页面章", 0, pageStampRadios),
-                CreateModeRadio("手动点击盖章", CustomPlacementStampType, pageStampRadios),
-                specifiedPageButton
-            }), 1, 0);
 
-            groups.Controls.Add(BuildRadioColumn("盖章模式", new[]
+            comboQfz.Width = 132;
+            comboQfz.Margin = new Padding(0, 0, 14, 0);
+            comboDJ.Width = 168;
+            comboDJ.Margin = new Padding(0, 0, 0, 0);
+
+            TableLayoutPanel groups = new TableLayoutPanel
             {
-                CreateModeRadio("合并（盖章不可编辑）", 1, outputModeRadios),
-                CreateModeRadio("叠加（盖章浮于页面）", 0, outputModeRadios)
-            }), 2, 0);
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = new Padding(0)
+            };
+            groups.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            groups.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            groups.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            FlowLayoutPanel row1 = CreateFlowRow();
+            row1.Margin = new Padding(0, 2, 0, 8);
+            row1.Controls.Add(CreateInlineBoldLabel("页面盖章"));
+            row1.Controls.Add(pageStampCombo);
+            row1.Controls.Add(specifiedPageButton);
+            groups.Controls.Add(row1, 0, 0);
+
+            FlowLayoutPanel row2 = CreateFlowRow();
+            row2.Controls.Add(CreateInlineBoldLabel("骑缝章"));
+            row2.Controls.Add(comboQfz);
+            row2.Controls.Add(CreateInlineBoldLabel("输出效果"));
+            row2.Controls.Add(comboDJ);
+            groups.Controls.Add(row2, 0, 1);
+
             section.Controls.Add(groups, 1, 0);
+            section.ResumeLayout(false);
+            return section;
+        }
 
-            // 按文字盖章：输入文字 → 自动定位并把印章中心对准文字放置到预览。
-            // 第一行：标签 + 输入框 + 清除按钮（输入框占满剩余空间）；第二行：两个操作按钮。
-            section.RowCount = 4;
-            section.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            section.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        private Label CreateInlineBoldLabel(string text)
+        {
+            return new Label
+            {
+                Text = text,
+                AutoSize = true,
+                Font = new Font(Font, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0, 3, 6, 0)
+            };
+        }
+
+        /// <summary>
+        /// 按文字盖章（独立区块）：输入文字 → 自动定位并把印章中心对准文字放置到预览。
+        /// 第一行：标签 + 历史输入框；第二行：两个操作按钮居中。
+        /// </summary>
+        private Control BuildAutoStampSection()
+        {
+            TableLayoutPanel section = CreateSectionTable();
+            section.Padding = new Padding(0, 10, 0, 10);
+            section.SuspendLayout();
+
+            Label heading = CreateSectionHeading("按文字盖章");
+            section.Controls.Add(heading, 0, 0);
+
+            section.RowCount = 2;
             section.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             section.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
@@ -308,7 +407,7 @@ namespace PDFQFZ
                 AutoSize = true,
                 ColumnCount = 2,
                 RowCount = 1,
-                Margin = new Padding(0, 14, 0, 0),   // 与上方保持距离，突出独立功能块
+                Margin = new Padding(0),
                 Padding = new Padding(0)
             };
             autoInputRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -318,7 +417,7 @@ namespace PDFQFZ
             {
                 Text = "按文字盖章",
                 AutoSize = true,
-                Font = new Font(Font, FontStyle.Bold),   // 与"骑缝章""页面盖章"等标签样式一致
+                Font = new Font(Font, FontStyle.Bold),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0, 3, 6, 0)
             };
@@ -326,16 +425,13 @@ namespace PDFQFZ
             autoStampInput = new HistoryInputControl
             {
                 Dock = DockStyle.Fill,
-                Margin = new Padding(0, 2, 14, 0)   // 右侧留白，与其他输入框右边界对齐
+                Margin = new Padding(0, 2, 0, 0)
             };
             autoStampInput.HistoryProvider = LoadAutoStampHistory;
 
             autoInputRow.Controls.Add(autoLabel, 0, 0);
             autoInputRow.Controls.Add(autoStampInput, 1, 0);
-            section.Controls.Add(autoInputRow, 1, 2);
-
-            FlowLayoutPanel autoButtonRow = CreateFlowRow();
-            autoButtonRow.Margin = new Padding(0, 6, 0, 0);
+            section.Controls.Add(autoInputRow, 1, 0);
 
             autoStampButton = new Button
             {
@@ -354,15 +450,40 @@ namespace PDFQFZ
             };
             undoAutoStampButton.Click += UndoAutoStampButton_Click;
 
-            autoButtonRow.Controls.Add(autoStampButton);
-            autoButtonRow.Controls.Add(undoAutoStampButton);
-            section.Controls.Add(autoButtonRow, 1, 3);
+            // 按钮行整体居中（与"盖章并生成文件"按钮同方案：手动居中定位）
+            Panel btnHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Height = 42,
+                Margin = new Padding(0, 6, 0, 0),
+                Padding = new Padding(0)
+            };
+            FlowLayoutPanel btnPair = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
+            btnPair.Controls.Add(autoStampButton);
+            btnPair.Controls.Add(undoAutoStampButton);
+            btnHost.Controls.Add(btnPair);
+            btnHost.Resize += (sender, args) =>
+            {
+                btnPair.Location = new Point((btnHost.ClientSize.Width - btnPair.Width) / 2, 4);
+            };
+            section.Controls.Add(btnHost, 1, 1);
+            section.ResumeLayout(false);
             return section;
         }
 
-        private Control BuildSettingsSection()
+        /// <summary>
+        /// ④ 印章参数（默认折叠）：印章外观 + 骑缝章参数，按功能分 4 行。
+        /// </summary>
+        private Control BuildSealParamsSection()
         {
-            TableLayoutPanel stack = new TableLayoutPanel
+            TableLayoutPanel content = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
@@ -370,55 +491,154 @@ namespace PDFQFZ
                 ColumnCount = 1,
                 RowCount = 4,
                 Margin = new Padding(0),
+                Padding = new Padding(0),
+                Tag = "Collapsible"
+            };
+            content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            content.Controls.Add(BuildStampSettingsRow1(), 0, 0);
+            content.Controls.Add(BuildStampSettingsRow2(), 0, 1);
+            content.Controls.Add(BuildStampSettingsRow3(), 0, 2);
+            content.Controls.Add(BuildSeamSettings(), 0, 3);
+            return CreateCollapsibleSection("印章参数", content);
+        }
+
+        /// <summary>
+        /// ⑤ 其他设置（默认折叠）：数字签名 + PDF 密码。
+        /// </summary>
+        private Control BuildOtherSection()
+        {
+            TableLayoutPanel content = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = new Padding(0),
+                Padding = new Padding(0),
+                Tag = "Collapsible"
+            };
+            content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            content.Controls.Add(BuildSignatureSettings(), 0, 0);
+            content.Controls.Add(BuildOtherSettings(), 0, 1);
+            return CreateCollapsibleSection("其他设置", content);
+        }
+
+        /// <summary>
+        /// 折叠区块：标题行（▶/▼ + 标题）可点击，内容默认收起。
+        /// 展开时顶开下方提示区，折叠时让提示区自动升高。
+        /// </summary>
+        private Control CreateCollapsibleSection(string title, Control content)
+        {
+            TableLayoutPanel fold = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = new Padding(0),
+                Padding = new Padding(0),
+                Tag = "Collapsible"
+            };
+            fold.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            fold.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            fold.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            FlowLayoutPanel titleBar = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Cursor = Cursors.Hand,
+                Margin = new Padding(0, 6, 0, 4),
                 Padding = new Padding(0)
             };
-            stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            Label arrow = new Label
+            {
+                Text = "▶",
+                AutoSize = true,
+                Font = new Font(Font, FontStyle.Bold),
+                ForeColor = Color.FromArgb(110, 110, 110),
+                Margin = new Padding(0, 2, 5, 0)
+            };
+            Label titleLabel = new Label
+            {
+                Text = title,
+                AutoSize = true,
+                Font = new Font(Font, FontStyle.Bold),
+                ForeColor = Color.FromArgb(30, 30, 30),
+                Margin = new Padding(0, 0, 0, 0)
+            };
+            titleBar.Controls.Add(arrow);
+            titleBar.Controls.Add(titleLabel);
 
-            AddSettingsSection(stack, 0, "数字签名", BuildSignatureSettings());
-            AddSettingsSection(stack, 1, "印章设置", BuildStampSettings());
-            AddSettingsSection(stack, 2, "骑缝章设置", BuildSeamSettings());
-            AddSettingsSection(stack, 3, "其他", BuildOtherSettings());
-            return stack;
+            ToggleAction action = () => ToggleFold(fold, content, arrow);
+            titleBar.Click += (s, e) => action();
+            arrow.Click += (s, e) => action();
+            titleLabel.Click += (s, e) => action();
+            fold.Controls.Add(titleBar, 0, 0);
+
+            content.Dock = DockStyle.Top;
+            content.AutoSize = true;
+            content.Margin = new Padding(0, 2, 0, 2);
+            content.Visible = false;   // 默认折叠
+            fold.Controls.Add(content, 0, 1);
+            return fold;
+        }
+
+        private delegate void ToggleAction();
+
+        private void ToggleFold(TableLayoutPanel fold, Control content, Label arrow)
+        {
+            bool visible = !content.Visible;
+            content.Visible = visible;
+            arrow.Text = visible ? "▼" : "▶";
+            fold.PerformLayout();
+            leftLayout?.PerformLayout();
         }
 
         private Control BuildSignatureSettings()
         {
             FlowLayoutPanel row = CreateSettingsFlowRow();
-            comboQmtype.Width = 185;
+            comboQmtype.Width = 160;
             comboQmtype.Margin = new Padding(0, 1, 14, 0);
             row.Controls.Add(comboQmtype);
-            row.Controls.Add(CreateInlineField(labelname, textname, 120));
-            row.Controls.Add(CreateInlineField(labelpass, textpass, 120));
+            row.Controls.Add(CreateInlineField(labelname, textname, 100));
+            row.Controls.Add(CreateInlineField(labelpass, textpass, 100));
             return row;
         }
 
-        private Control BuildStampSettings()
+        private Control BuildStampSettingsRow1()
         {
-            TableLayoutPanel rows = new TableLayoutPanel
-            {
-                Dock = DockStyle.Top,
-                AutoSize = true,
-                ColumnCount = 1,
-                RowCount = 2,
-                Margin = new Padding(0)
-            };
-            FlowLayoutPanel first = CreateSettingsFlowRow();
-            first.Controls.Add(CreateInlineField(label13, textCC, 54, "mm"));
-            first.Controls.Add(CreateInlineField(label10, textRotation, 54, "°"));
-            first.Controls.Add(CreateInlineField(new Label { Text = "旋转处理", AutoSize = true }, comboBoxQB, 115));
+            FlowLayoutPanel row = CreateSettingsFlowRow();
+            row.Controls.Add(CreateInlineField(label13, textCC, 54, "mm"));
+            row.Controls.Add(CreateInlineField(label10, textRotation, 54, "°"));
+            row.Controls.Add(CreateInlineField(new Label { Text = "旋转处理", AutoSize = true }, comboBoxQB, 115));
+            return row;
+        }
 
-            FlowLayoutPanel second = CreateSettingsFlowRow();
-            second.Controls.Add(CreateInlineField(new Label { Text = "不透明度", AutoSize = true }, textOpacity, 54, "%"));
-            second.Controls.Add(checkRandom);
-            second.Controls.Add(cbxTransColor);
-            second.Controls.Add(CreateInlineField(new Label { Text = "容差", AutoSize = true }, txtAllow, 54));
-            rows.Controls.Add(first, 0, 0);
-            rows.Controls.Add(second, 0, 1);
-            return rows;
+        private Control BuildStampSettingsRow2()
+        {
+            FlowLayoutPanel row = CreateSettingsFlowRow();
+            row.Controls.Add(CreateInlineField(new Label { Text = "不透明度", AutoSize = true }, textOpacity, 54, "%"));
+            row.Controls.Add(checkRandom);
+            return row;
+        }
+
+        private Control BuildStampSettingsRow3()
+        {
+            FlowLayoutPanel row = CreateSettingsFlowRow();
+            row.Controls.Add(cbxTransColor);
+            row.Controls.Add(CreateInlineField(new Label { Text = "容差", AutoSize = true }, txtAllow, 54));
+            return row;
         }
 
         private Control BuildSeamSettings()
@@ -732,21 +952,22 @@ namespace PDFQFZ
 
         private void ConfigureModeSynchronization()
         {
+            // 内部业务下拉保持隐藏：文件模式由单选控制、页面盖章由下拉映射控制。
             comboType.Visible = false;
-            comboQfz.Visible = false;
             comboYz.Visible = false;
-            comboDJ.Visible = false;
             comboBoxPages.Visible = false;
             checkMultiple.Visible = false;
             checkMultiple.Checked = true;
             labelPage.Visible = false;
             textPx.Visible = false;
             textPy.Visible = false;
-            label6.Visible = false;
-            label7.Visible = false;
-            label8.Visible = false;
-            label9.Visible = false;
-            label12.Visible = false;
+
+            // 输出效果下拉直接显示：保持索引语义（0=叠加、1=合并），仅展示完整文案。
+            if (comboDJ != null && comboDJ.Items.Count == 2)
+            {
+                comboDJ.Items[0] = "叠加（盖章浮于页面）";
+                comboDJ.Items[1] = "合并（盖章不可编辑）";
+            }
 
             comboType.SelectedIndexChanged += HiddenModeCombo_SelectedIndexChanged;
             comboQfz.SelectedIndexChanged += HiddenModeCombo_SelectedIndexChanged;
@@ -766,24 +987,6 @@ namespace PDFQFZ
             map[radio] = value;
             radio.CheckedChanged += VisibleModeRadio_CheckedChanged;
             return radio;
-        }
-
-        private Control BuildRadioColumn(string title, IEnumerable<Control> controls)
-        {
-            FlowLayoutPanel column = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                AutoSize = true,
-                FlowDirection = FlowDirection.TopDown,
-                WrapContents = false,
-                Margin = new Padding(0, 0, 8, 0)
-            };
-            column.Controls.Add(new Label { AutoSize = true, Font = new Font(Font, FontStyle.Bold), Text = title, Margin = new Padding(0, 0, 0, 3) });
-            foreach (Control control in controls)
-            {
-                column.Controls.Add(control);
-            }
-            return column;
         }
 
         private TableLayoutPanel CreateSectionTable(bool separateRows = false)
@@ -857,7 +1060,7 @@ namespace PDFQFZ
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = false,
+                WrapContents = true,   // 与 CreateFlowRow 统一：内容超宽自动换行，避免输入框溢出右边界
                 Margin = new Padding(0),
                 Padding = new Padding(0)
             };
@@ -891,63 +1094,6 @@ namespace PDFQFZ
             label.Padding = new Padding(0, 5, 0, 5);
             section.Controls.Add(label, 0, row);
             section.Controls.Add(CenterVertically(content), 1, row);
-        }
-
-        private void AddSettingsSection(TableLayoutPanel stack, int row, string heading, Control content)
-        {
-            TableLayoutPanel section = CreateSectionTable();
-            section.Dock = DockStyle.Top;
-            section.AutoSize = true;
-            section.Margin = new Padding(0);
-            section.Padding = new Padding(0, 10, 0, 10);
-
-            section.Controls.Add(CreateSectionHeading(heading), 0, 0);
-            content.Dock = DockStyle.Top;
-            content.AutoSize = true;
-            content.Margin = new Padding(0);
-            section.Controls.Add(content, 1, 0);
-            stack.Controls.Add(section, 0, row);
-        }
-
-        private Control CreateSettingsContainer(string heading, Control content, bool drawDivider)
-        {
-            TableLayoutPanel container = new TableLayoutPanel
-            {
-                Dock = DockStyle.Top,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 2,
-                RowCount = 1,
-                Margin = new Padding(0),
-                Padding = new Padding(0, 10, 0, 10),
-                BackColor = SystemColors.Control
-            };
-            container.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 114F));
-            container.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            container.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-            Label label = CreateSectionHeading(heading);
-            label.Padding = new Padding(0);
-            label.Dock = DockStyle.Fill;
-            container.Controls.Add(label, 0, 0);
-
-            content.Dock = DockStyle.Top;
-            content.AutoSize = true;
-            content.Margin = new Padding(0);
-            container.Controls.Add(content, 1, 0);
-
-            if (drawDivider)
-            {
-                container.Paint += (sender, args) =>
-                {
-                    using (Pen pen = new Pen(Color.FromArgb(205, 208, 212)))
-                    {
-                        int y = container.ClientSize.Height - 1;
-                        args.Graphics.DrawLine(pen, 0, y, container.ClientSize.Width, y);
-                    }
-                };
-            }
-            return container;
         }
 
         private static Control CenterVertically(Control content)
@@ -995,22 +1141,6 @@ namespace PDFQFZ
                 comboType.SelectedIndex = fileMode;
                 comboType_SelectionChangeCommitted(comboType, EventArgs.Empty);
             }
-            else if (seamModeRadios.TryGetValue(radio, out int seamMode))
-            {
-                comboQfz.SelectedIndex = seamMode;
-                comboQfz_SelectionChangeCommitted(comboQfz, EventArgs.Empty);
-            }
-            else if (pageStampRadios.TryGetValue(radio, out int pageMode))
-            {
-                comboYz.SelectedIndex = pageMode;
-                yzType = pageMode;
-                lastCommittedYzType = pageMode;
-                UpdatePlacementOperationHint();
-            }
-            else if (outputModeRadios.TryGetValue(radio, out int outputMode))
-            {
-                comboDJ.SelectedIndex = outputMode;
-            }
         }
 
         private void HiddenModeCombo_SelectedIndexChanged(object sender, EventArgs e)
@@ -1027,10 +1157,42 @@ namespace PDFQFZ
 
             synchronizingModeControls = true;
             SetChecked(fileModeRadios, comboType.SelectedIndex);
-            SetChecked(seamModeRadios, comboQfz.SelectedIndex);
-            SetChecked(pageStampRadios, comboYz.SelectedIndex == SpecifiedPageStampType ? CustomPlacementStampType : comboYz.SelectedIndex);
-            SetChecked(outputModeRadios, comboDJ.SelectedIndex);
+            SyncPageStampCombo(comboYz.SelectedIndex);
             synchronizingModeControls = false;
+        }
+
+        /// <summary>
+        /// 页面盖章下拉（可见控件）与业务 comboYz（隐藏）保持同步：
+        /// comboYz 为 2（指定范围页盖章）时，下拉显示为"手动点击盖章"。
+        /// </summary>
+        private void SyncPageStampCombo(int yzIndex)
+        {
+            if (pageStampCombo == null)
+            {
+                return;
+            }
+            int display = yzIndex == SpecifiedPageStampType ? CustomPlacementStampType : yzIndex;
+            if (display >= 0 && display < pageStampCombo.Items.Count && pageStampCombo.SelectedIndex != display)
+            {
+                pageStampCombo.SelectedIndex = display;
+            }
+        }
+
+        private void PageStampCombo_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (synchronizingModeControls || pageStampCombo == null || pageStampCombo.SelectedIndex < 0)
+            {
+                return;
+            }
+            int mode = pageStampCombo.SelectedIndex;
+            if (mode == comboYz.SelectedIndex)
+            {
+                return;
+            }
+            comboYz.SelectedIndex = mode;
+            yzType = mode;
+            lastCommittedYzType = mode;
+            UpdatePlacementOperationHint();
         }
 
         private static void SetChecked(IDictionary<RadioButton, int> radios, int value)
