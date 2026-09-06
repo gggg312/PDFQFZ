@@ -1,0 +1,132 @@
+<Window x:Class="PDFQFZ.WPF.HelpWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="使用说明"
+        Width="720" Height="760" MinWidth="600" MinHeight="500"
+        WindowStartupLocation="CenterOwner"
+        Background="#F5F5F5" FontFamily="Microsoft YaHei UI" FontSize="13">
+    <Grid Margin="0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 可滚动的说明内容 -->
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="28,24,28,16">
+
+                <!-- 标题 -->
+                <TextBlock Text="PDF 盖页面章与骑缝章工具 使用说明"
+                           FontSize="18" FontWeight="Bold" Foreground="#1A1A1A"
+                           Margin="0,0,0,20" />
+
+                <!-- 一、安装与配置 -->
+                <TextBlock Text="一、安装与配置" Style="{StaticResource HelpSectionTitle}" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="本软件为单文件免安装程序，下载后直接运行即可。" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="首次运行后，会在 EXE 同目录生成配置文件 config.ini（保存印章列表、参数设置、历史记录等）。" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="建议将 EXE 单独放在一个文件夹中，再发送快捷方式到桌面使用，以免误删或误改配置文件。" />
+
+                <!-- 二、快速开始 -->
+                <TextBlock Text="二、快速开始" Style="{StaticResource HelpSectionTitle}" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="1. 将 PDF 文件或文件夹拖入软件，或点击“选择”按钮选取文件；" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="2. 选择印章图片（支持多个印章，下拉切换）；" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="3. 选择盖章方式（手动点击 / 指定范围页 / 按文字盖章）；" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="4. 在预览区确认盖章位置无误后，点击“盖章并生成文件”；" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="5. 生成的文件保存在源文件同目录（目录模式保存在“已盖章”子文件夹）。" />
+
+                <!-- 三、盖章方式 -->
+                <TextBlock Text="三、盖章方式" Style="{StaticResource HelpSectionTitle}" />
+                <TextBlock Style="{StaticResource HelpBody}">
+                    <Bold>页面盖章：</Bold>
+                </TextBlock>
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 手动点击盖章：选择“点击盖章”后，在预览区左键单击空白处盖章；左键单击已有印章可叠加盖章；右键单击已有印章删除。" Margin="20,0,0,4" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 指定范围页盖章：点击“指定范围页盖章”，输入起始页和结尾页，确定后批量盖章。" Margin="20,0,0,4" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 不盖页面章：选择此项则不进行页面盖章。" Margin="20,0,0,8" />
+                <TextBlock Style="{StaticResource HelpBody}">
+                    <Bold>骑缝章：</Bold>选择骑缝章模式（不加骑缝章 / 加盖骑缝章 / 单页骑缝章 / 双页骑缝章 / 随意骑缝章），骑缝章可根据需要选择盖或不盖，与页面章互不影响。
+                </TextBlock>
+                <TextBlock Style="{StaticResource HelpBody}">
+                    <Bold>输出效果：</Bold>
+                </TextBlock>
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 合并（盖章不可编辑）：默认模式，盖章直接合入页面内容。注意：合并后文字不可编辑，且原数字签名会丢失。" Margin="20,0,0,4" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 叠加（盖章浮于页面）：盖章以可编辑元素浮于页面上。" Margin="20,0,0,4" />
+
+                <!-- 四、按文字盖章 -->
+                <TextBlock Text="四、按文字盖章（自动定位）" Style="{StaticResource HelpSectionTitle}" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="输入需要盖章的文字（如公司名称），点击“按文字放置印章”，软件自动在 PDF 中搜索该文字，并将印章盖在文字正中心。" />
+                <TextBlock Style="{StaticResource HelpBody}">
+                    <Bold>全部盖章：</Bold>文档中所有出现该文字的位置都会盖章。
+                </TextBlock>
+                <TextBlock Style="{StaticResource HelpBody}">
+                    <Bold>历史记录：</Bold>搜索成功并盖章的文字会保存到下拉菜单，最多保留 10 条，可删除单条历史。
+                </TextBlock>
+                <TextBlock Style="{StaticResource HelpBody}">
+                    <Bold>上下文过滤（精准盖章）：</Bold>勾选“附近关键词”后，只有当目标文字前后指定范围内出现指定关键词时才盖章，避免正文里出现的公司名称被误盖。
+                </TextBlock>
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 关键词输入：多个关键词可用逗号、分号、顿号、空格分隔。" Margin="20,0,0,4" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 上下文范围：目标文字前后多少字内出现关键词才算匹配，默认 10 字。" Margin="20,0,0,4" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 匹配模式：全部关键词（且）— 所有关键词都出现才盖章；任一关键词（或）— 只要有一个关键词出现就盖章。" Margin="20,0,0,4" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 报错弹窗会显示当前搜索的关键词内容、数量和匹配模式，方便核对。" Margin="20,0,0,4" />
+                <TextBlock Style="{StaticResource HelpBody}">
+                    <Bold>图片型 PDF：</Bold>扫描件或图片合并的 PDF 没有文字层，无法搜索文字，<Run Foreground="#E5484D">这种盖章方式不支持图片型 PDF</Run>，会提示“图片型 PDF 无法搜索到文字，无法放置印章”。
+                </TextBlock>
+
+                <!-- 五、印章 -->
+                <TextBlock Text="五、印章" Style="{StaticResource HelpSectionTitle}" />
+                <TextBlock Style="{StaticResource HelpBody}">
+                    <Bold>多印章管理：</Bold>印章文件下拉菜单可保存多个印章，切换印章时自动加载该印章上次使用的参数（尺寸、旋转、不透明度等）。下拉菜单中每条记录右侧有删除按钮，可删除不需要的印章。
+                </TextBlock>
+                <TextBlock Style="{StaticResource HelpBody}">
+                    <Bold>印章参数：</Bold>
+                </TextBlock>
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 尺寸：印章大小，单位 mm。" Margin="20,0,0,4" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 旋转：印章旋转角度，单位度。" Margin="20,0,0,4" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 不透明度：印章透明度，百分比。" Margin="20,0,0,4" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 盖章随机旋转：勾选后每次盖章随机旋转 ±N 度，模拟手工盖章的自然角度。" Margin="20,0,0,4" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 去除白色背景：勾选后自动去除印章图片的白色背景，容差可调；未勾选时相关参数置灰不可用。" Margin="20,0,0,4" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 骑缝章设置：骑缝章位置（上 / 下 / 左 / 右）、位置百分比、最大分割数，盖章时自动将印章拆分到各页边缘。" Margin="20,0,0,4" />
+
+                <!-- 六、预览操作 -->
+                <TextBlock Text="六、预览操作" Style="{StaticResource HelpSectionTitle}" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="单页视图：鼠标滚轮翻页，Ctrl + 滚轮缩放页面。" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="放大视图：按住鼠标左键拖动页面，滚轮缩放。" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="页码跳转：在页码输入框输入页码后回车，直接跳转到指定页。" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="右键删除：右键单击已有印章可删除（批量印章会弹窗确认删除范围）。" />
+
+                <!-- 七、其他设置 -->
+                <TextBlock Text="七、其他设置" Style="{StaticResource HelpSectionTitle}" />
+                <TextBlock Style="{StaticResource HelpBody}">
+                    <Bold>数字签名：</Bold>可选择内置或自定义证书对 PDF 进行数字签名。
+                </TextBlock>
+                <TextBlock Style="{StaticResource HelpBody}">
+                    <Bold>PDF 加密：</Bold>可设置打开密码和权限密码。
+                </TextBlock>
+
+                <!-- 八、输出文件与配置 -->
+                <TextBlock Text="八、输出文件与配置" Style="{StaticResource HelpSectionTitle}" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="输出文件沿用现有命名规则，并根据同一源文件已存在的输出文件自动使用 V1、V2、V3 等版本号，不覆盖旧结果，例如 1.pdf 输出为 1_已盖章V1.pdf。" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="首次启动默认：文件模式、不加骑缝章、手动点击盖章、合并模式。" />
+
+                <!-- 九、常见问题 -->
+                <TextBlock Text="九、常见问题" Style="{StaticResource HelpSectionTitle}" />
+                <TextBlock Style="{StaticResource HelpBody}">
+                    <Bold>Q：印章有白色背景怎么办？</Bold>
+                </TextBlock>
+                <TextBlock Style="{StaticResource HelpBody}" Text="A：在“印章参数”中勾选“去除白色背景”，调整容差即可。" Margin="20,0,0,8" />
+                <TextBlock Style="{StaticResource HelpBody}">
+                    <Bold>Q：配置和印章列表存在哪里？</Bold>
+                </TextBlock>
+                <TextBlock Style="{StaticResource HelpBody}" Text="A：保存在 EXE 同目录的 config.ini 文件中，换电脑时连同 EXE 一起拷贝即可保留配置。" Margin="20,0,0,8" />
+
+                <!-- 底部留白 -->
+                <TextBlock Text=" " Margin="0,8" />
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- 底部关闭按钮 -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,28,16">
+            <Button Content="关闭" Width="90" Height="32" Click="OnCloseClick" IsDefault="True" IsCancel="True" />
+        </StackPanel>
+    </Grid>
+</Window>
