@@ -125,6 +125,10 @@ namespace PDFQFZ.WPF
                     Top = AppConfig.WindowTop;
                 }
 
+                // 窗口自适应：防止小屏幕或旧配置导致窗口超出屏幕、标题栏跑到屏幕外拖不回来。
+                // 逻辑：尺寸超过所在屏幕工作区→压缩到屏幕内；位置在屏幕外→回到屏幕中央。
+                FitWindowToScreen();
+
                 // 盖章方式：0=不盖 / 1=手动 / 2=指定范围（WPF 指定范围用按钮，映射到手动）
                 comboPageStamp.SelectedIndex = AppConfig.YzType == 0 ? 0 : 1;
 
@@ -172,6 +176,59 @@ namespace PDFQFZ.WPF
             catch (Exception ex)
             {
                 AppendLog("读取配置失败：" + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// 窗口自适应：防止小屏幕或旧配置导致窗口超出屏幕。
+        /// 尺寸超过所在屏幕工作区→压缩到屏幕内（不低于最小尺寸）；位置在屏幕外→回到屏幕中央。
+        /// </summary>
+        private void FitWindowToScreen()
+        {
+            try
+            {
+                // 用窗口中心点确定所在屏幕（支持多显示器）；WPF 窗口坐标是 DIP，需按 DPI 换算成物理像素再查 Screen
+                double scaleX = 1.0, scaleY = 1.0;
+                try
+                {
+                    var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+                    scaleX = dpi.DpiScaleX;
+                    scaleY = dpi.DpiScaleY;
+                }
+                catch
+                {
+                    // DPI 获取失败时按 1:1 处理，不影响主流程
+                }
+
+                int centerX = (int)((Left + Width / 2.0) * scaleX);
+                int centerY = (int)((Top + Height / 2.0) * scaleY);
+                var screen = System.Windows.Forms.Screen.FromPoint(new System.Drawing.Point(centerX, centerY));
+                var workArea = screen.WorkingArea;
+
+                double availLeft = workArea.Left / scaleX;
+                double availTop = workArea.Top / scaleY;
+                double availWidth = workArea.Width / scaleX;
+                double availHeight = workArea.Height / scaleY;
+
+                const double margin = 20.0; // 窗口与屏幕边缘保留的边距
+
+                // 尺寸超屏 → 压缩（不低于最小尺寸，避免布局被压坏）
+                if (Width > availWidth - margin)
+                    Width = Math.Max(MinWidth, availWidth - margin);
+                if (Height > availHeight - margin)
+                    Height = Math.Max(MinHeight, availHeight - margin);
+
+                // 位置出屏（窗口整体在屏幕外）→ 回到屏幕中央（CenterScreen 需在 Show 前设置才生效）
+                bool offscreen = Left < availLeft - 40 || Top < availTop - 40 ||
+                                 Left > availLeft + availWidth - 40 || Top > availTop + availHeight - 40;
+                if (offscreen)
+                {
+                    WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                }
+            }
+            catch
+            {
+                // 自适应失败时保持默认定位（CenterScreen），不阻塞启动
             }
         }
 
@@ -262,6 +319,11 @@ namespace PDFQFZ.WPF
             // 直接读 ViewportWidth/Height 会拿到旧值，导致全屏/还原后页面大小不更新（需手动切换视图才正常）
             SizeChanged += (s, e) => Dispatcher.BeginInvoke(new Action(RelayoutPreview),
                 System.Windows.Threading.DispatcherPriority.Loaded);
+            // 窗口高度变化时重新分配设置区/提示区高度（设置区优先显示全）。
+            // 必须延迟到布局完成后再读 ActualHeight，否则 SizeChanged 同步阶段拿到的是旧值。
+            SizeChanged += (s, e) => Dispatcher.BeginInvoke(new Action(UpdateSettingsHeight),
+                System.Windows.Threading.DispatcherPriority.Loaded);
+            Loaded += (s, e) => UpdateSettingsHeight();
 
             // 去除白色背景：未勾选时容差不可编辑
             chkRemoveWhite.Checked += (s, e) => UpdateToleranceEnabled();
@@ -406,6 +468,24 @@ namespace PDFQFZ.WPF
             System.Windows.Media.Brush defaultBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x66, 0x66, 0x66));
             arrow.Foreground = collapsed ? redBrush : defaultBrush;
             text.Foreground = collapsed ? redBrush : defaultBrush;
+            // 内容高度变化后重新分配设置区/提示区高度（延迟到布局完成），并自动滚动到展开区域底部
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                UpdateSettingsHeight();
+                // 展开后：若内容超出可视区，自动滚动到展开区域底部，让展开内容立即可见，无需手动下滚
+                if (collapsed && settingsScroll != null && content.ActualHeight > 0)
+                {
+                    // 强制同步布局：content 刚设为可见，ActualHeight/TranslatePoint 若用旧值会算小，导致滚不到位
+                    settingsScroll.UpdateLayout();
+                    double bottom = content.TranslatePoint(
+                        new System.Windows.Point(0, content.ActualHeight), settingsContent).Y;
+                    // 底部虚化提示（scrollHint，高 22px）会盖住展开区域最后几行，额外多滚 22px 补偿；
+                    // ScrollToVerticalOffset 会自动截断到可滚动上限，故"5 其他设置"自然滚到最底部
+                    const double hintCompensation = 22;
+                    settingsScroll.ScrollToVerticalOffset(
+                        Math.Max(0, bottom - settingsScroll.ViewportHeight + hintCompensation));
+                }
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
         // ===================== 文件选择 / 拖放 =====================
@@ -814,6 +894,9 @@ namespace PDFQFZ.WPF
                 return;
             }
 
+            // 读取视口前先强制同步布局：视图切换（放大→单页）时滚动条刚从 Auto 改为 Disabled，
+            // 布局尚未刷新，此时 ViewportWidth/Height 仍是带滚动条的旧值，会导致页面按窄视口重算、比正常单页小。
+            if (previewScroll != null) previewScroll.UpdateLayout();
             // 用 ScrollViewer 真正的内容视口尺寸（ViewportWidth/Height），而非控件 ActualWidth/Height
             // 避免 ScrollViewer 模板边框导致视口与控件尺寸不一致
             double vw = previewScroll.ViewportWidth > 0 ? previewScroll.ViewportWidth : previewScroll.ActualWidth;
@@ -934,15 +1017,31 @@ namespace PDFQFZ.WPF
         }
 
         // ===================== 缩放控制 =====================
+        /// <summary>缩放后根据百分比同步视图模式：超过 100% 自动进入放大视图；从放大视图缩小回 100% 自动回到单页视图（无滚动条、整页居中、预览区不被滚动条压缩）。</summary>
+        private void SyncViewModeAfterZoom(int percent)
+        {
+            if (previewViewMode == PreviewViewMode.SinglePage && percent > PreviewZoomPolicy.MinimumPercent)
+            {
+                previewViewMode = PreviewViewMode.Scroll;
+            }
+            else if (previewViewMode == PreviewViewMode.Scroll && percent <= PreviewZoomPolicy.MinimumPercent)
+            {
+                previewViewMode = PreviewViewMode.SinglePage;
+                if (previewScroll != null)
+                {
+                    previewScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+                    previewScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
+                    previewScroll.ScrollToHome();
+                }
+            }
+        }
+
         /// <summary>缩放一步（对齐原版：步进 25，范围 100-300；放大视图时超出 100 自动切放大视图）。</summary>
         private void ZoomStep(int direction)
         {
             int next = PreviewZoomPolicy.Step((int)Math.Round(zoomPercent), direction);
             zoomPercent = next;
-            if (previewViewMode == PreviewViewMode.SinglePage && next > PreviewZoomPolicy.MinimumPercent)
-            {
-                previewViewMode = PreviewViewMode.Scroll;
-            }
+            SyncViewModeAfterZoom(next);
             UpdateViewModeButtons();
             RelayoutPreview();
             UpdatePlacementOperationHint();
@@ -1021,10 +1120,7 @@ namespace PDFQFZ.WPF
                 return;
             }
             zoomPercent = percent;
-            if (previewViewMode == PreviewViewMode.SinglePage && percent > PreviewZoomPolicy.MinimumPercent)
-            {
-                previewViewMode = PreviewViewMode.Scroll;
-            }
+            SyncViewModeAfterZoom(percent);
             UpdateViewModeButtons();
             RelayoutPreview();
             UpdatePlacementOperationHint();
@@ -1053,10 +1149,7 @@ namespace PDFQFZ.WPF
                 int direction = e.Delta > 0 ? 1 : -1;
                 int next = PreviewZoomPolicy.StepByWheel((int)Math.Round(zoomPercent), direction);
                 zoomPercent = next;
-                if (previewViewMode == PreviewViewMode.SinglePage && next > PreviewZoomPolicy.MinimumPercent)
-                {
-                    previewViewMode = PreviewViewMode.Scroll;
-                }
+                SyncViewModeAfterZoom(next);
                 UpdateViewModeButtons();
                 RelayoutPreview();
                 UpdatePlacementOperationHint();
@@ -1692,6 +1785,14 @@ namespace PDFQFZ.WPF
             }
         }
 
+        // 使用说明按钮：打开使用说明窗口
+        private void BtnHelp_Click(object sender, RoutedEventArgs e)
+        {
+            HelpWindow help = new HelpWindow();
+            help.Owner = this;
+            help.ShowDialog();
+        }
+
         /// <summary>解析“附近关键词”输入：按逗号/分号/空格/顿号分隔，去空白去重，返回非空词数组。</summary>
         private static string[] ParseContextKeywords(string input)
         {
@@ -2069,11 +2170,17 @@ namespace PDFQFZ.WPF
             // 每条日志前缀时间戳 [HH:mm:ss]，日志之间用单换行+较小行高实现半行间距
             string timestampedLine = "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + line;
             logText.Text = logText.Text.Length == 0 ? timestampedLine : logText.Text + "\n" + timestampedLine;
-            // 追加文字后自动滚动到底部，确保最新内容可见
+            // 追加文字后自动滚动到底部，确保最新内容可见。
+            // 注意：文本追加后立即 ScrollToEnd 时，ScrollViewer 内部可能尚未完成内容测量，
+            // 布局完成后滚动位置会被重置回顶部；这里再延迟滚动一次到底，保证最终停在最新一行。
             if (logScroll != null)
             {
                 logScroll.UpdateLayout();
                 logScroll.ScrollToEnd();
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (logScroll != null) logScroll.ScrollToEnd();
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
             }
         }
 
@@ -2142,6 +2249,57 @@ namespace PDFQFZ.WPF
             TimeSpan elapsed = DateTime.Now - savingStartTime;
             SetOperationHint(string.Format("正在生成盖章文件中{0}\n已用时 {1:mm\\:ss}",
                 new string('.', dotCount), elapsed));
+        }
+
+        /// <summary>设置区滚动变化：内容未显示完时显示底部虚化，顶部内容滚出时显示顶部虚化，滚到底/顶自动隐藏。</summary>
+        /// <remarks>此处不再调用 UpdateSettingsHeight：设置行高会再次触发本事件形成递归。
+        /// 高度重算只由 Loaded / SizeChanged / 折叠切换触发。</remarks>
+        private void SettingsScroll_ScrollChanged(object sender, ScrollChangedEventArgs e)
+        {
+            if (settingsScroll == null) return;
+            bool canScrollDown = settingsScroll.ScrollableHeight > 1 &&
+                                 settingsScroll.VerticalOffset + settingsScroll.ViewportHeight
+                                 < settingsScroll.ExtentHeight - 2;
+            if (scrollHint != null)
+                scrollHint.Visibility = canScrollDown ? Visibility.Visible : Visibility.Collapsed;
+            bool canScrollUp = settingsScroll.VerticalOffset > 1;
+            if (scrollHintTop != null)
+                scrollHintTop.Visibility = canScrollUp ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        /// <summary>
+        /// 左栏上下两区高度分配（严格顺序）：设置区优先长高，直到内容完全显示（无滚动条）；
+        /// 内容显示全之后，窗口继续升高的空间才全部给提示区。窗口高度不足时，设置区压缩为滚动区，
+        /// 提示区保持 190px 保证初始 7 行说明可读。
+        /// </summary>
+        private void UpdateSettingsHeight()
+        {
+            if (settingsRow == null || logRow == null || settingsContent == null || leftGrid == null) return;
+            double padV = settingsScroll.Padding.Top + settingsScroll.Padding.Bottom; // ScrollViewer 上下内边距
+            double contentH = settingsContent.ActualHeight + padV; // 内容真实高度 + 内边距，行高达到该值即无滚动条
+            if (contentH <= 1) return;
+            const double fixedRows = 50 + 1; // 按钮行(Auto) + 分隔线(1)
+            const double minLog = 190;       // 提示区最小高度（容纳初始 7 行说明）
+            // 关键：必须用窗口客户区高度减去左栏 Border 上下边距（MainWindow.xaml: Margin="0,14,0,14"）作为可用空间。
+            // 不能用 leftGrid.ActualHeight——它等于内部行高的总和（Border 按内容排列 Grid），窗口缩小后行高不变它就
+            // 不变，用它计算会把"放大后的行高"永远当成可用空间，导致缩小后无法恢复（死锁）。
+            double space = Math.Max(0, this.ActualHeight - 28 - fixedRows);
+            // 设置区优先：先满足内容全显示；空间不足时至少留出提示区最小高度
+            double targetSettings = Math.Min(contentH, Math.Max(0, space - minLog));
+            double targetLog = space - targetSettings;
+            if (targetLog < minLog) { targetLog = minLog; targetSettings = space - minLog; }
+            if (targetSettings < 0) { targetSettings = 0; targetLog = space; }
+
+            bool changed =
+                settingsRow.Height.GridUnitType != GridUnitType.Pixel ||
+                Math.Abs(settingsRow.Height.Value - targetSettings) > 1 ||
+                logRow.Height.GridUnitType != GridUnitType.Pixel ||
+                Math.Abs(logRow.Height.Value - targetLog) > 1;
+            if (changed)
+            {
+                settingsRow.Height = new GridLength(targetSettings);
+                logRow.Height = new GridLength(targetLog);
+            }
         }
 
         protected override void OnClosed(EventArgs e)

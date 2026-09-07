@@ -42,8 +42,8 @@ namespace PDFQFZ.WPF.Services
         public static string SignCustomPath = "";
         public static string SignCustomPass = "";
         public static string LastStampImagePath = ""; // 上次选择的印章路径（WPF 新增，便于记忆）
-        public static int WindowWidth = 1400;
-        public static int WindowHeight = 1030;
+        public static int WindowWidth = 1280;
+        public static int WindowHeight = 840;
         public static int WindowLeft = -1;
         public static int WindowTop = -1;
 
@@ -58,7 +58,12 @@ namespace PDFQFZ.WPF.Services
             get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.ini"); }
         }
 
-        /// <summary>印章图片列表文件（每行一个图片路径，与原版 yz.log 一致）。</summary>
+        /// <summary>印章列表在 config.ini 中的键名（V2.0.1 起从 yz.log 合并到此）。</summary>
+        private const string StampPathsIniKey = "stampPaths";
+        /// <summary>印章路径分隔符（分号，路径中不会出现）。</summary>
+        private static readonly char[] StampPathsSeparator = new[] { ';' };
+
+        /// <summary>旧版印章列表文件（V2.0.1 前使用，仅用于迁移）。</summary>
         public static string StampsLogPath
         {
             get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "yz.log"); }
@@ -195,25 +200,43 @@ namespace PDFQFZ.WPF.Services
             }
         }
 
-        // ---------- 印章列表（yz.log，对齐原版多印章下拉） ----------
+        // ---------- 印章列表（V2.0.1 起合并到 config.ini 的 stampPaths 键） ----------
 
-        /// <summary>读取印章图片路径列表（保留顺序，不做去重，与原版行为一致）。</summary>
+        /// <summary>读取印章图片路径列表（保留顺序，不做去重；首次运行自动从旧版 yz.log 迁移）。</summary>
         public static List<string> LoadStampPaths()
         {
             List<string> result = new List<string>();
             try
             {
-                if (!File.Exists(StampsLogPath))
+                IniFileHelper ini = new IniFileHelper(IniPath);
+                string raw = Content(ini, StampPathsIniKey, "");
+
+                // 旧用户迁移：config.ini 中没有 stampPaths，但 yz.log 存在 → 自动迁移
+                if (string.IsNullOrWhiteSpace(raw) && File.Exists(StampsLogPath))
                 {
-                    return result;
+                    List<string> oldPaths = new List<string>();
+                    foreach (string line in File.ReadAllLines(StampsLogPath))
+                    {
+                        string p = line.Trim();
+                        if (p.Length > 0) oldPaths.Add(p);
+                    }
+                    if (oldPaths.Count > 0)
+                    {
+                        SaveStampPathsInternal(oldPaths);
+                        try { File.Delete(StampsLogPath); } catch { }
+                        return oldPaths;
+                    }
                 }
 
-                foreach (string line in File.ReadAllLines(StampsLogPath))
+                if (!string.IsNullOrWhiteSpace(raw))
                 {
-                    string path = line.Trim();
-                    if (path.Length > 0)
+                    foreach (string item in raw.Split(StampPathsSeparator, StringSplitOptions.RemoveEmptyEntries))
                     {
-                        result.Add(path);
+                        string path = item.Trim();
+                        if (path.Length > 0)
+                        {
+                            result.Add(path);
+                        }
                     }
                 }
             }
@@ -224,12 +247,13 @@ namespace PDFQFZ.WPF.Services
             return result;
         }
 
-        /// <summary>追加印章图片路径到 yz.log（仅追加不重写，避免误删已有记录）。</summary>
-        public static void AppendStampPaths(IEnumerable<string> paths)
+        /// <summary>内部方法：将印章路径列表写入 config.ini（用分号分隔）。</summary>
+        private static void SaveStampPathsInternal(List<string> paths)
         {
             try
             {
-                File.AppendAllLines(StampsLogPath, paths);
+                IniFileHelper ini = new IniFileHelper(IniPath);
+                ini.WriteIniString(Section, StampPathsIniKey, string.Join(";", paths));
             }
             catch
             {
@@ -237,14 +261,36 @@ namespace PDFQFZ.WPF.Services
             }
         }
 
-        /// <summary>从 yz.log 删除指定印章路径（大小写不敏感），重写整个文件。</summary>
+        /// <summary>追加印章图片路径到 config.ini（去重，新路径加到末尾）。</summary>
+        public static void AppendStampPaths(IEnumerable<string> paths)
+        {
+            try
+            {
+                List<string> existing = LoadStampPaths();
+                foreach (string p in paths)
+                {
+                    string path = p.Trim();
+                    if (path.Length > 0 && !existing.Exists(x => string.Equals(x, path, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        existing.Add(path);
+                    }
+                }
+                SaveStampPathsInternal(existing);
+            }
+            catch
+            {
+                // 保存失败不影响主流程
+            }
+        }
+
+        /// <summary>从 config.ini 删除指定印章路径（大小写不敏感）。</summary>
         public static void RemoveStampPath(string path)
         {
             try
             {
                 List<string> paths = LoadStampPaths();
                 paths.RemoveAll(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
-                File.WriteAllLines(StampsLogPath, paths);
+                SaveStampPathsInternal(paths);
             }
             catch
             {

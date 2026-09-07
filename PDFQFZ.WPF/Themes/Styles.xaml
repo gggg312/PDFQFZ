@@ -359,7 +359,8 @@
     <!-- ===================== 卡片 ===================== -->
     <Style x:Key="Card" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource Color.CardBg}" />
-        <Setter Property="BorderBrush" Value="{StaticResource Color.Border}" />
+        <!-- 分区圆角矩形边框：比全局 Color.Border 更深，保证 1~5 分区边界清晰可见 -->
+        <Setter Property="BorderBrush" Value="#C6CAD2" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="10" />
         <Setter Property="Padding" Value="14,12" />
@@ -463,4 +464,21 @@
     </Style>
 
     <!-- 按文字历史下拉项：文字 + 右侧删除叉（模板在 MainWindow.Resources，事件绑定到 MainWindow） -->
+
+    <!-- ===================== 使用说明窗口 ===================== -->
+    <Style x:Key="HelpSectionTitle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="#1A1A1A" />
+        <Setter Property="Margin" Value="0,16,0,6" />
+    </Style>
+
+    <Style x:Key="HelpBody" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="Foreground" Value="#333333" />
+        <Setter Property="LineHeight" Value="20" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Margin" Value="0,0,0,4" />
+    </Style>
+
 </ResourceDictionary>

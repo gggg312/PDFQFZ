@@ -1,9 +1,9 @@
 <Window x:Class="PDFQFZ.WPF.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PDF盖页面章与骑缝章工具（V2.1.0 GG优化版）"
+        Title="PDF盖页面章与骑缝章工具（V2.1.1 GG优化版）"
         Icon="app.ico"
-        Height="1130" Width="1400" MinHeight="1130" MinWidth="1400"
+        Height="840" Width="1280" MinHeight="680" MinWidth="1024"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource Color.WindowBg}"
         FontFamily="{StaticResource Font.App}">
@@ -47,14 +47,23 @@
                       ShowsPreview="True" ResizeBehavior="PreviousAndNext" />
 
         <!-- ===================== 左侧：设置面板 ===================== -->
-        <!-- 上区：卡片 + 盖章按钮（可滚动）；下区：操作提示区固定贴底，上方卡片展开/收起时被压缩/增高 -->
-        <Grid Grid.Column="0">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
-            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" Padding="16,14,16,0">
-                <StackPanel>
+        <!-- 上区：卡片 + 盖章按钮（占剩余空间，内容多时内部滚动）；下区：操作提示区固定高度贴底 -->
+        <!-- 左栏统一外框：上下两区共用一个方框，右侧滚动条必然对齐 -->
+        <Border Grid.Column="0" Background="{StaticResource Color.CardBg}"
+                BorderBrush="{StaticResource Color.Border}" BorderThickness="1"
+                CornerRadius="10" Margin="0,14,0,14">
+            <Grid x:Name="leftGrid">
+                <Grid.RowDefinitions>
+                    <RowDefinition x:Name="settingsRow" Height="3*" MaxHeight="1400" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="1" />
+                    <RowDefinition x:Name="logRow" Height="*" MinHeight="190" />
+                </Grid.RowDefinitions>
+                <!-- 设置区：可滚动，底部叠加“可继续滚动”提示 -->
+                <Grid Grid.Row="0">
+                    <ScrollViewer x:Name="settingsScroll" VerticalScrollBarVisibility="Auto" Padding="15,12,15,10"
+                                  ScrollChanged="SettingsScroll_ScrollChanged">
+                <StackPanel x:Name="settingsContent" VerticalAlignment="Top">
 
                 <!-- ===== 卡片1：源文件 ===== -->
                     <Border Style="{StaticResource Card}" Margin="0,0,0,12">
@@ -407,20 +416,47 @@
                         </StackPanel>
                     </Border>
 
-                <!-- 主按钮：随卡片流动，紧贴其下的其他设置 -->
-                <Button x:Name="btnGenerate" Style="{StaticResource Button.Danger}"
-                        Content="盖章并生成文件" Height="38" Margin="0,2,0,10" HorizontalAlignment="Stretch" />
                 </StackPanel>
-            </ScrollViewer>
+                    </ScrollViewer>
+                    <!-- 底部虚化提示：内容未显示完时显示渐隐，滚动到底自动隐藏 -->
+                    <Border x:Name="scrollHint" VerticalAlignment="Bottom" HorizontalAlignment="Stretch"
+                            Padding="0,16,0,6" Visibility="Collapsed" IsHitTestVisible="False">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                <GradientStop Color="Transparent" Offset="0" />
+                                <GradientStop Color="#E6FFFFFF" Offset="0.6" />
+                                <GradientStop Color="#FFFFFFFF" Offset="1" />
+                            </LinearGradientBrush>
+                        </Border.Background>
+                    </Border>
+                    <!-- 顶部虚化提示：内容向上滚动未显示完时显示渐隐，滚回顶部自动隐藏 -->
+                    <Border x:Name="scrollHintTop" VerticalAlignment="Top" HorizontalAlignment="Stretch"
+                            Padding="0,6,0,16" Visibility="Collapsed" IsHitTestVisible="False">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
+                                <GradientStop Color="Transparent" Offset="0" />
+                                <GradientStop Color="#E6FFFFFF" Offset="0.6" />
+                                <GradientStop Color="#FFFFFFFF" Offset="1" />
+                            </LinearGradientBrush>
+                        </Border.Background>
+                    </Border>
+                </Grid>
 
-            <!-- 操作提示区：填充按钮下方区域，文字顶部对齐，内容多时内部滚动 -->
-            <Border Grid.Row="1" Style="{StaticResource Card}" Margin="16,0,16,14" Padding="10,8"
-                    Background="{StaticResource Color.InfoBg}" BorderBrush="{StaticResource Color.InfoBorder}">
-                <ScrollViewer x:Name="logScroll" VerticalScrollBarVisibility="Auto">
-                    <TextBlock x:Name="logText" AutomationProperties.AutomationId="logText" Style="{StaticResource LogText}" Text="就绪" VerticalAlignment="Top" />
+                <!-- 盖章按钮：固定在外，不随设置区滚动 -->
+                <Button Grid.Row="1" x:Name="btnGenerate" Style="{StaticResource Button.Danger}"
+                        Content="盖章并生成文件" Height="38" Margin="15,2,15,10" HorizontalAlignment="Stretch" />
+
+                <!-- 分隔线 -->
+                <Border Grid.Row="2" Background="{StaticResource Color.Border}" />
+
+                <!-- 操作提示区：占满按钮下方剩余空间 -->
+                <Border Grid.Row="3" Background="{StaticResource Color.InfoBg}">
+                    <ScrollViewer x:Name="logScroll" VerticalScrollBarVisibility="Auto" Padding="15,8,15,8">
+                    <TextBlock x:Name="logText" AutomationProperties.AutomationId="logText" Style="{StaticResource LogText}" Text="就绪" VerticalAlignment="Top" Margin="0,0,0,10" />
                 </ScrollViewer>
             </Border>
-        </Grid>
+            </Grid>
+        </Border>
 
         <!-- ===================== 右侧：PDF 预览 ===================== -->
         <Grid Grid.Column="2" Margin="12,12,12,14">
