@@ -30,7 +30,7 @@ namespace PDFQFZ.WPF.Services
         public static int Rotation = 0;       // 旋转角度
         public static int Opacity = 100;      // 不透明度
         public static int WzPercent = 50;     // 骑缝章位置%
-        public static int MaxFgs = 20;        // 最大分割数
+        public static int MaxFgs = 500;       // 最大分割数（默认500，满足水印/大面积骑缝章场景）
         public static int YzIndex = -1;       // 印章索引（历史兼容，WPF 以路径为准）
         public static string SignText = "";   // 签名文本/证书名
         public static string Password = "";   // 签名密码
@@ -415,6 +415,7 @@ namespace PDFQFZ.WPF.Services
             public int RandomRange = 5;       // 盖章随机旋转角度范围（±N°）
             public bool RemoveWhite = false; // 去除白色背景
             public int Tolerance = 20;       // 容差
+            public int MaxSplit = 500;       // 骑缝章最大分割数（随印章记忆，默认500）
         }
 
         private static string StampParamSection(string stampFileName)
@@ -442,6 +443,7 @@ namespace PDFQFZ.WPF.Services
                 p.RandomRange = ini.GetIniInt(sec, "randomRange", p.RandomRange);
                 p.RemoveWhite = ini.GetIniInt(sec, "removeWhite", 0) == 1;
                 p.Tolerance = ini.GetIniInt(sec, "tolerance", p.Tolerance);
+                p.MaxSplit = ini.GetIniInt(sec, "maxSplit", p.MaxSplit);
             }
             catch
             {
@@ -469,6 +471,7 @@ namespace PDFQFZ.WPF.Services
                 ini.WriteIniInt(sec, "randomRange", p.RandomRange);
                 ini.WriteIniInt(sec, "removeWhite", p.RemoveWhite ? 1 : 0);
                 ini.WriteIniInt(sec, "tolerance", p.Tolerance);
+                ini.WriteIniInt(sec, "maxSplit", p.MaxSplit);
             }
             catch
             {

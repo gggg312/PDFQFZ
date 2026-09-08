@@ -1,7 +1,7 @@
 <Window x:Class="PDFQFZ.WPF.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PDF盖页面章与骑缝章工具（V2.2.1 GG优化版）"
+        Title="PDF盖页面章与骑缝章工具（V2.2.2 GG优化版）"
         Icon="app.ico"
         Height="840" Width="1280" MinHeight="680" MinWidth="1024"
         WindowStartupLocation="CenterScreen"

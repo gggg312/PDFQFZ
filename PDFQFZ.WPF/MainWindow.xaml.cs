@@ -342,6 +342,23 @@ namespace PDFQFZ.WPF
             btnFoldSealParams.Click += (s, e) => ToggleFold(sealParamsContent, foldSealParamsArrow, foldSealParamsText);
             btnFoldOther.Click += (s, e) => ToggleFold(otherContent, foldOtherArrow, foldOtherText);
             btnFoldAutoText.Click += (s, e) => ToggleFold(autoTextContent, foldAutoTextArrow, foldAutoTextText);
+            // 切换骑缝章类型时给出操作提示（单页=正向/奇数页，双页=反向/偶数页）
+            comboSeam.SelectionChanged += (s, e) =>
+            {
+                int qfzType = SeamBusinessFromDisplay(comboSeam.SelectedIndex);
+                if (qfzType == 2)
+                {
+                    SetOperationHint("单页骑缝章：类似于双面打印正向盖章的效果，奇数页（1、3、5...）有骑缝章");
+                }
+                else if (qfzType == 3)
+                {
+                    SetOperationHint("双页骑缝章：类似于双面打印反向盖章的效果，偶数页（2、4、6...）有骑缝章");
+                }
+                else if (qfzType == 4)
+                {
+                    SetOperationHint("随意骑缝章：所有放置过印章的页面都加盖骑缝章（跟随已盖章页面）");
+                }
+            };
 
             btnGenerate.Click += async (s, e) => await OnGenerateClickAsync();
             btnAutoPlace.Click += (s, e) => OnAutoPlaceClick();
@@ -768,7 +785,8 @@ namespace PDFQFZ.WPF
                     RandomParams = chkRandomParams.IsChecked == true,
                     RandomRange = TryParseInt(txtRandomRange.Text, 0, 90, out int rr) ? rr : 5,
                     RemoveWhite = chkRemoveWhite.IsChecked == true,
-                    Tolerance = TryParseInt(txtTolerance.Text, 0, 50, out int t) ? t : 20
+                    Tolerance = TryParseInt(txtTolerance.Text, 0, 50, out int t) ? t : 20,
+                    MaxSplit = TryParseInt(txtMaxSplit.Text, 1, 10000, out int ms) ? ms : 500
                 };
                 AppConfig.SaveStampParams(_currentStampFileName, p);
             }
@@ -793,6 +811,7 @@ namespace PDFQFZ.WPF
             txtRandomRange.Text = p.RandomRange.ToString();
             chkRemoveWhite.IsChecked = p.RemoveWhite;
             txtTolerance.Text = p.Tolerance.ToString();
+            if (p.MaxSplit > 0) txtMaxSplit.Text = p.MaxSplit.ToString();
             UpdateToleranceEnabled();
         }
 
