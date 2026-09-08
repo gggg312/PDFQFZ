@@ -91,6 +91,7 @@
     </Compile>
     <Compile Include="Services\StampEngine.cs" />
     <Compile Include="Services\AppConfig.cs" />
+    <Compile Include="Services\PdfiumBootstrap.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="..\PDFQFZ\Library\CommandLineFileLoader.cs" Link="Library\CommandLineFileLoader.cs" />
     <Compile Include="..\PDFQFZ\Library\IniFileHelper.cs" Link="Library\IniFileHelper.cs" />
@@ -133,14 +134,17 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
   </ItemGroup>
+  <!-- pdfium.dll 作为普通嵌入资源（不交给 Costura），程序启动时自行提取到 EXE 同目录，
+       并通过 PdfiumResolver.Resolve 明确指定加载路径，避免依赖系统临时文件夹（%TEMP%），
+       解决部分电脑上“PdfiumViewer.NativeMethods 类型初始值设定项引发异常”的问题。 -->
   <ItemGroup>
     <EmbeddedResource Include="$(Pkgbblanchon_PDFium_Win32)\runtimes\win-x86\native\pdfium.dll">
-      <Link>costura-win-x86\pdfium.dll</Link>
-      <LogicalName>costura_win_x86.pdfium.dll</LogicalName>
+      <Link>assets\pdfium-x86.dll</Link>
+      <LogicalName>PDFQFZ.WPF.assets.pdfium-x86.dll</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="$(Pkgbblanchon_PDFium_Win32)\runtimes\win-x64\native\pdfium.dll">
-      <Link>costura-win-x64\pdfium.dll</Link>
-      <LogicalName>costura_win_x64.pdfium.dll</LogicalName>
+      <Link>assets\pdfium-x64.dll</Link>
+      <LogicalName>PDFQFZ.WPF.assets.pdfium-x64.dll</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

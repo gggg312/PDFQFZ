@@ -857,8 +857,12 @@ namespace PDFQFZ.WPF
             }
             catch (Exception ex)
             {
+                // 完整异常链（含 InnerException 底层原因）写入诊断日志 + 弹窗，便于定位引擎加载问题
+                string chain = PDFQFZ.WPF.Services.PdfiumBootstrap.BuildExceptionChain(ex);
+                PDFQFZ.WPF.Services.PdfiumBootstrap.WriteDiag("加载 PDF 失败，完整异常链：" + Environment.NewLine + chain);
                 AppendLog("加载失败：" + ex.Message);
-                MessageBox.Show("加载 PDF 失败：" + ex.Message, "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("加载 PDF 失败：" + Environment.NewLine + chain, "提示",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 

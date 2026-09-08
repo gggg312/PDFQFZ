@@ -26,7 +26,7 @@
 
 - 最新版本：前往 [Releases](https://github.com/gggg312/PDFQFZ/releases) 下载。
 - 单个 EXE 文件，支持 Windows 10/11（x86/x64），下载后直接运行即可。
-- 首次运行后，会在 EXE 同目录生成配置文件 `config.ini`（保存印章列表、参数设置、历史记录等），建议将 EXE 单独放在一个文件夹，发送快捷方式到桌面使用，以免误删或误改配置文件。
+- 首次运行后，会在 EXE 同目录生成配置文件 `config.ini`（保存印章列表、参数设置、历史记录等）和引擎文件 `pdfium.dll`（约 7MB，属正常现象，请勿删除；若被删除，下次启动会自动重新生成）。建议把 EXE 单独放进一个文件夹（如 D 盘新建“PDF盖章”文件夹），再发送快捷方式到桌面使用，以免误删或误改这两个文件。
 
 ## 快速上手
 
@@ -101,6 +101,6 @@
 
 - 主程序为 .NET Framework 4.7.2 WPF，可用 Visual Studio 2022 打开 `PDFQFZ.sln`；
 - 测试项目使用 .NET 9 Windows 测试工程，当前自动测试 `117/117` 通过；
-- PDF 渲染使用开源 PDFium（`PdfiumViewer.Updated 2.14.5`、`bblanchon.PDFium.Win32 153.0.8009`），x86/x64 原生组件均嵌入单 EXE；
+- PDF 渲染使用开源 PDFium（`PdfiumViewer.Updated 2.14.5`、`bblanchon.PDFium.Win32 153.0.8009`），x86/x64 原生组件均嵌入 EXE，首次运行时自动解压到 EXE 同目录加载（不依赖系统临时文件夹）；
 - PDF 写入使用 iTextSharp 5.5.13.6；
 - 许可情况见 `LICENSING.md` 与 `THIRD-PARTY-NOTICES.md`。

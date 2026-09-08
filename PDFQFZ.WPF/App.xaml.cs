@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Threading;
 using System.Windows;
+using PDFQFZ.WPF.Services;
 
 namespace PDFQFZ.WPF
 {
@@ -22,6 +23,10 @@ namespace PDFQFZ.WPF
                 Shutdown();
                 return;
             }
+
+            // 在创建主窗口（首次使用 PDF 引擎）之前，先准备 pdfium.dll：
+            // 提取到 EXE 同目录并注册 PdfiumViewer 的加载路径，避免依赖系统临时文件夹。
+            PdfiumBootstrap.EnsurePdfiumReady();
 
             base.OnStartup(e);
             MainWindow = new MainWindow(e.Args);
