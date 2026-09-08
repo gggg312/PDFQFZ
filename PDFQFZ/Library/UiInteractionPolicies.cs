@@ -14,7 +14,8 @@ namespace PDFQFZ.Library
     internal enum PreviewViewMode
     {
         SinglePage = 0,
-        Scroll = 1
+        DoublePage = 1,
+        Scroll = 2
     }
 
     internal static class PreviewZoomPolicy
@@ -23,6 +24,8 @@ namespace PDFQFZ.Library
         public const int MaximumPercent = 300;
         public const int StepPercent = 25;
         public const int WheelStepPercent = 10;
+        /// <summary>进入放大视图时的起始比例：比整页 fit（100%）放大一档，页面超出预览区，滚轮滚动/拖动立即有反馈。</summary>
+        public const int FitWidthEntryPercent = 125;
 
         public static int Clamp(int percent)
         {
@@ -121,9 +124,19 @@ namespace PDFQFZ.Library
                 actionHint = "当前未启用页面印章；可按住左键拖动查看页面。";
             }
 
-            string viewHint = viewMode == PreviewViewMode.SinglePage
-                ? "单页视图。鼠标滚轮翻页，Ctrl+滚轮缩放。"
-                : "放大视图。鼠标滚轮滚动页面，Ctrl+滚轮缩放。";
+            string viewHint;
+            if (viewMode == PreviewViewMode.SinglePage)
+            {
+                viewHint = "单页视图。鼠标滚轮翻页，Ctrl+滚轮缩放。";
+            }
+            else if (viewMode == PreviewViewMode.DoublePage)
+            {
+                viewHint = "双页视图。两页并排显示，鼠标滚轮翻跨页。";
+            }
+            else
+            {
+                viewHint = "放大视图。鼠标滚轮滚动页面，Ctrl+滚轮缩放。";
+            }
             return actionHint + " " + viewHint;
         }
     }

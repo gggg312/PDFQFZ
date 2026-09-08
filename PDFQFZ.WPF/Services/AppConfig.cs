@@ -46,6 +46,7 @@ namespace PDFQFZ.WPF.Services
         public static int WindowHeight = 840;
         public static int WindowLeft = -1;
         public static int WindowTop = -1;
+        public static int LeftPanelWidth = -1;  // 分隔条拖动后的左栏宽度（px，-1=未拖动过，用默认比例）
 
         // 按文字盖章——上下文过滤（WPF 新增）
         public static bool ContextFilterEnabled = false; // 是否启用附近关键词过滤（默认关闭）
@@ -113,6 +114,7 @@ namespace PDFQFZ.WPF.Services
                 WindowHeight = ini.GetIniInt(Section, "windowHeight", WindowHeight);
                 WindowLeft = ini.GetIniInt(Section, "windowLeft", WindowLeft);
                 WindowTop = ini.GetIniInt(Section, "windowTop", WindowTop);
+                LeftPanelWidth = ini.GetIniInt(Section, "leftPanelWidth", LeftPanelWidth);
                 ContextKeywords = Content(ini, "contextKeywords", ContextKeywords);
                 ContextRange = ini.GetIniInt(Section, "contextRange", ContextRange);
                 ContextMatch = ini.GetIniInt(Section, "contextMatch", ContextMatch);
@@ -125,6 +127,20 @@ namespace PDFQFZ.WPF.Services
         }
 
         /// <summary>保存窗口状态（关闭时调用）。</summary>
+        /// <summary>立即把分隔条位置写入配置文件（不依赖窗口关闭，拖动完就落盘，防止异常退出丢失）。</summary>
+        public static void SaveLeftPanelWidth()
+        {
+            try
+            {
+                IniFileHelper ini = new IniFileHelper(IniPath);
+                ini.WriteIniInt(Section, "leftPanelWidth", LeftPanelWidth);
+            }
+            catch
+            {
+            }
+        }
+
+        /// <summary>窗口关闭时保存窗口位置/大小（连同分隔条位置）。</summary>
         public static void SaveWindowState(double left, double top, double width, double height)
         {
             try
@@ -134,6 +150,7 @@ namespace PDFQFZ.WPF.Services
                 ini.WriteIniInt(Section, "windowHeight", (int)height);
                 ini.WriteIniInt(Section, "windowLeft", (int)left);
                 ini.WriteIniInt(Section, "windowTop", (int)top);
+                ini.WriteIniInt(Section, "leftPanelWidth", LeftPanelWidth);
             }
             catch
             {

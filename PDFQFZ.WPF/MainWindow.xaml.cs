@@ -56,7 +56,15 @@ namespace PDFQFZ.WPF
         private double basePageHeightPx;          // 当前页 100% 高（px）
         private double fitWidthPx;                // 整页适应预览区的宽（px）
         private double fitHeightPx;               // 整页适应预览区的高（px）
-        private PreviewViewMode previewViewMode = PreviewViewMode.SinglePage; // 单页/放大视图
+        private PreviewViewMode previewViewMode = PreviewViewMode.SinglePage; // 单页/双页/放大视图
+        // 双页视图：两页并排间距（px）与左右页显示尺寸
+        private const double DoublePageGap = 12;
+        private double doublePageLeftW;
+        private double doublePageLeftH;
+        private double doublePageRightW;
+        private double doublePageRightH;
+        /// <summary>翻页步进：双页视图一次翻一个跨页（2 页），单页/放大视图逐页。</summary>
+        private int PageStep => previewViewMode == PreviewViewMode.DoublePage ? 2 : 1;
         // 预览拖动（对齐原版固定起点式：按下时记录鼠标起点与滚动偏移快照，移动时一次性计算并夹取，避免增量累加在边界处跳动）
         private System.Windows.Point panStartMouse;
         private double panStartOffsetX;
@@ -64,6 +72,7 @@ namespace PDFQFZ.WPF
         private bool isDraggingPreview;
         private bool zoomInitialized;             // 首次加载已计算 fit 基准
         private int previewWheelDeltaRemainder;   // 单页视图滚轮翻页累积
+        private int wheelPageScrollMode;          // 放大视图滚轮连续翻页后的滚动位置：0=按比例恢复 / 1=滚到顶部 / 2=滚到底部
 
         // 保存阶段动态提示（对齐原版：省略号动画 + 已用时）
         private System.Windows.Threading.DispatcherTimer savingTimer;
@@ -175,7 +184,7 @@ namespace PDFQFZ.WPF
             }
             catch (Exception ex)
             {
-                AppendLog("读取配置失败：" + ex.Message);
+                AppendLog("读取配置失败：" + ex.Message, true);
             }
         }
 
@@ -286,20 +295,33 @@ namespace PDFQFZ.WPF
             // 缩放工具栏（对齐原版：步进 25，100-300）
             btnZoomIn.Click += (s, e) => ZoomStep(1);
             btnZoomOut.Click += (s, e) => ZoomStep(-1);
-            // 单页/放大视图：ToggleButton 互斥二选一，选中态遵循 WPF 系统规范
+            // 单页/双页/放大视图：ToggleButton 互斥三选一，选中态遵循 WPF 系统规范
             btnFitPage.Checked += (s, e) => { if (IsViewToggleHandled()) FitPage(); };
             btnFitWidth.Checked += (s, e) => { if (IsViewToggleHandled()) FitWidth(); };
+            btnFitDouble.Checked += (s, e) => { if (IsViewToggleHandled()) FitDouble(); };
             btnFitPage.Unchecked += OnViewToggleUnchecked;
             btnFitWidth.Unchecked += OnViewToggleUnchecked;
+            btnFitDouble.Unchecked += OnViewToggleUnchecked;
             txtZoomNow.KeyDown += (s, e) => { if (e.Key == Key.Enter) ApplyZoomInput(); };
             txtZoomNow.LostFocus += (s, e) => ApplyZoomInput();
 
-            // 拖动平移 / 左键单击盖章 / 右键删除印章 / Ctrl+滚轮缩放
+            // 拖动平移 / 左键单击盖章 / 右键删除印章 / Ctrl+滚轮缩放（单页 overlayCanvas 与双页左右 overlayCanvas 共用同一套处理器）
             overlayCanvas.MouseLeftButtonDown += OnPreviewCanvasMouseDown;
             overlayCanvas.MouseMove += OnPreviewCanvasMouseMove;
             overlayCanvas.MouseLeftButtonUp += OnPreviewCanvasMouseUp;
             overlayCanvas.MouseRightButtonDown += OnPreviewCanvasMouseRightButtonDown;
+            overlayCanvasLeft.MouseLeftButtonDown += OnPreviewCanvasMouseDown;
+            overlayCanvasLeft.MouseMove += OnPreviewCanvasMouseMove;
+            overlayCanvasLeft.MouseLeftButtonUp += OnPreviewCanvasMouseUp;
+            overlayCanvasLeft.MouseRightButtonDown += OnPreviewCanvasMouseRightButtonDown;
+            overlayCanvasRight.MouseLeftButtonDown += OnPreviewCanvasMouseDown;
+            overlayCanvasRight.MouseMove += OnPreviewCanvasMouseMove;
+            overlayCanvasRight.MouseLeftButtonUp += OnPreviewCanvasMouseUp;
+            overlayCanvasRight.MouseRightButtonDown += OnPreviewCanvasMouseRightButtonDown;
             previewScroll.PreviewMouseWheel += OnPreviewMouseWheel;
+            // 工具栏宽度变化（窗口缩放/分隔条拖动）时，按空间分档压缩组间间距，极限时缩短按钮文字，仍放不下才换行。
+            // 只响应宽度变化：换行会使工具栏高度变化，若高度变化也触发判定，会形成"换行→高度变→再判定→再换行"的布局振荡。
+            previewToolbar.SizeChanged += OnToolbarSizeChanged;
 
             // 键盘翻页（对齐原版 PreviewNavigation_KeyDown：PageUp/Down、上下左右翻页；输入框聚焦时不拦截）
             PreviewKeyDown += OnWindowPreviewKeyDown;
@@ -323,7 +345,7 @@ namespace PDFQFZ.WPF
             // 必须延迟到布局完成后再读 ActualHeight，否则 SizeChanged 同步阶段拿到的是旧值。
             SizeChanged += (s, e) => Dispatcher.BeginInvoke(new Action(UpdateSettingsHeight),
                 System.Windows.Threading.DispatcherPriority.Loaded);
-            Loaded += (s, e) => UpdateSettingsHeight();
+            Loaded += (s, e) => { UpdateSettingsHeight(); RestoreLeftPanelWidth(); UpdateToolbarSpacing(); };
 
             // 去除白色背景：未勾选时容差不可编辑
             chkRemoveWhite.Checked += (s, e) => UpdateToleranceEnabled();
@@ -860,7 +882,7 @@ namespace PDFQFZ.WPF
                 // 完整异常链（含 InnerException 底层原因）写入诊断日志 + 弹窗，便于定位引擎加载问题
                 string chain = PDFQFZ.WPF.Services.PdfiumBootstrap.BuildExceptionChain(ex);
                 PDFQFZ.WPF.Services.PdfiumBootstrap.WriteDiag("加载 PDF 失败，完整异常链：" + Environment.NewLine + chain);
-                AppendLog("加载失败：" + ex.Message);
+                AppendLog("加载失败：" + ex.Message, true);
                 MessageBox.Show("加载 PDF 失败：" + Environment.NewLine + chain, "提示",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
             }
@@ -871,12 +893,14 @@ namespace PDFQFZ.WPF
             if (pageCache != null) { pageCache.Clear(); pageCache = null; }
             if (pdfRenderer != null) { pdfRenderer.Dispose(); pdfRenderer = null; }
             previewImage.Source = null;
+            previewImageLeft.Source = null;
+            previewImageRight.Source = null;
         }
 
         private void ChangePage(int delta)
         {
             if (pdfRenderer == null) return;
-            int target = currentPageIndex + delta;
+            int target = currentPageIndex + delta * PageStep;
             if (target < 0 || target >= pageCount) return;
             currentPageIndex = target;
             UpdatePageInfo();
@@ -885,7 +909,16 @@ namespace PDFQFZ.WPF
 
         private void UpdatePageInfo()
         {
-            txtPageNow.Text = (pageCount == 0 ? 0 : currentPageIndex + 1).ToString();
+            if (previewViewMode == PreviewViewMode.DoublePage)
+            {
+                int left = currentPageIndex + 1;
+                int right = currentPageIndex + 2;
+                txtPageNow.Text = right <= pageCount ? left + "-" + right : left.ToString();
+            }
+            else
+            {
+                txtPageNow.Text = (pageCount == 0 ? 0 : currentPageIndex + 1).ToString();
+            }
             txtPageTotal.Text = "/ " + pageCount + " 页";
             UpdatePageNavButtons();
         }
@@ -956,6 +989,68 @@ namespace PDFQFZ.WPF
                     btnZoomOut.IsEnabled = false;
                     btnZoomIn.IsEnabled = true;
                 }
+                else if (previewViewMode == PreviewViewMode.DoublePage)
+                {
+                    // 双页视图：左右两页并排整页适应（间距 12px），固定 100%，禁用滚动条与缩放按钮
+                    if (previewScroll != null)
+                    {
+                        previewScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+                        previewScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
+                    }
+                    Bitmap rightBmp = currentPageIndex + 1 < pageCount ? pageCache.GetPage(currentPageIndex + 1) : null;
+                    previewImageLeft.Source = ToBitmapSource(bmp);
+                    if (rightBmp != null) previewImageRight.Source = ToBitmapSource(rightBmp);
+
+                    double gap = DoublePageGap;
+                    // 两页并排整体适应预览区（四周围 18 边距）：先按宽度，超高再按高度
+                    double pageW = (vw - 18 * 2 - gap) / 2;
+                    if (pageW < 50) pageW = 50;
+                    double leftH = pageW * basePageHeightPx / basePageWidthPx;
+                    double rightH = rightBmp != null ? pageW * rightBmp.Height / rightBmp.Width : leftH;
+                    double maxH = Math.Max(leftH, rightH);
+                    if (maxH > vh - 36)
+                    {
+                        maxH = vh - 36;
+                        pageW = maxH * basePageWidthPx / basePageHeightPx;
+                        leftH = maxH;
+                        rightH = rightBmp != null ? pageW * rightBmp.Height / rightBmp.Width : maxH;
+                    }
+                    double totalW = rightBmp != null ? pageW * 2 + gap : pageW;
+
+                    doublePageLeftW = pageW;
+                    doublePageLeftH = leftH;
+                    doublePageRightW = pageW;
+                    doublePageRightH = rightH;
+
+                    leftPagePane.Width = pageW;
+                    leftPagePane.Height = leftH;
+                    previewImageLeft.Width = pageW;
+                    previewImageLeft.Height = leftH;
+                    overlayCanvasLeft.Width = pageW;
+                    overlayCanvasLeft.Height = leftH;
+                    rightPagePane.Width = pageW;
+                    rightPagePane.Height = rightH;
+                    previewImageRight.Width = pageW;
+                    previewImageRight.Height = rightH;
+                    overlayCanvasRight.Width = pageW;
+                    overlayCanvasRight.Height = rightH;
+                    rightPagePane.Visibility = rightBmp != null ? Visibility.Visible : Visibility.Collapsed;
+
+                    displayWidth = pageW;
+                    displayHeight = leftH;
+                    txtZoomNow.Text = PreviewZoomPolicy.MinimumPercent.ToString();
+                    btnZoomOut.IsEnabled = false;
+                    btnZoomIn.IsEnabled = false;
+
+                    // 双页容器显示，单页元素隐藏
+                    doublePaneHost.Visibility = Visibility.Visible;
+                    previewImage.Visibility = Visibility.Collapsed;
+                    overlayCanvas.Visibility = Visibility.Collapsed;
+                    previewHost.Width = Math.Max(totalW, vw);
+                    previewHost.Height = Math.Max(maxH, vh);
+                    previewHost.HorizontalAlignment = HorizontalAlignment.Center;
+                    previewHost.VerticalAlignment = VerticalAlignment.Center;
+                }
                 else
                 {
                     // 放大视图：fit 基础上按百分比缩放（100-300），可滚动，启用滚动条
@@ -971,33 +1066,44 @@ namespace PDFQFZ.WPF
                     btnZoomIn.IsEnabled = zoomPercent < PreviewZoomPolicy.MaximumPercent;
                 }
 
-                // 内容撑开并居中：预览页面不足视口时居中，超过视口时可滚动
-                previewHost.Width = Math.Max(displayWidth, vw);
-                previewHost.Height = Math.Max(displayHeight, vh);
-                // 单页视图：previewHost 居中对齐，确保页面始终在预览区正中间；放大视图：左上对齐，支持滚动拖动
-                if (previewViewMode == PreviewViewMode.SinglePage)
+                // 单页/放大视图共用的单页元素布局；双页视图已在上面分支自行布局，跳过
+                if (previewViewMode != PreviewViewMode.DoublePage)
                 {
-                    previewHost.HorizontalAlignment = HorizontalAlignment.Center;
-                    previewHost.VerticalAlignment = VerticalAlignment.Center;
-                }
-                else
-                {
-                    previewHost.HorizontalAlignment = HorizontalAlignment.Left;
-                    previewHost.VerticalAlignment = VerticalAlignment.Top;
-                }
-                previewImage.Width = displayWidth;
-                previewImage.Height = displayHeight;
-                previewImage.HorizontalAlignment = HorizontalAlignment.Center;
-                previewImage.VerticalAlignment = VerticalAlignment.Center;
-                previewImage.Margin = new Thickness(0);
+                    // 内容撑开并居中：预览页面不足视口时居中，超过视口时可滚动
+                    previewHost.Width = Math.Max(displayWidth, vw);
+                    previewHost.Height = Math.Max(displayHeight, vh);
+                    // 单页视图：previewHost 居中对齐，确保页面始终在预览区正中间；放大视图：左上对齐，支持滚动拖动
+                    if (previewViewMode == PreviewViewMode.SinglePage)
+                    {
+                        previewHost.HorizontalAlignment = HorizontalAlignment.Center;
+                        previewHost.VerticalAlignment = VerticalAlignment.Center;
+                    }
+                    else
+                    {
+                        previewHost.HorizontalAlignment = HorizontalAlignment.Left;
+                        previewHost.VerticalAlignment = VerticalAlignment.Top;
+                    }
+                    previewImage.Width = displayWidth;
+                    previewImage.Height = displayHeight;
+                    previewImage.HorizontalAlignment = HorizontalAlignment.Center;
+                    previewImage.VerticalAlignment = VerticalAlignment.Center;
+                    previewImage.Margin = new Thickness(0);
 
-                overlayCanvas.Width = displayWidth;
-                overlayCanvas.Height = displayHeight;
-                overlayCanvas.HorizontalAlignment = HorizontalAlignment.Center;
-                overlayCanvas.VerticalAlignment = VerticalAlignment.Center;
+                    overlayCanvas.Width = displayWidth;
+                    overlayCanvas.Height = displayHeight;
+                    overlayCanvas.HorizontalAlignment = HorizontalAlignment.Center;
+                    overlayCanvas.VerticalAlignment = VerticalAlignment.Center;
 
-                // 放大视图：布局完成后按旧滚动比例恢复偏移，确保切换页面时页面相对位置不变（对齐原版）
-                if (isScrollMode && (oldScrollableW > 0 || oldScrollableH > 0))
+                    // 双页容器隐藏，单页元素显示
+                    doublePaneHost.Visibility = Visibility.Collapsed;
+                    previewImage.Visibility = Visibility.Visible;
+                    overlayCanvas.Visibility = Visibility.Visible;
+                }
+
+                // 放大视图：布局完成后恢复滚动位置
+                // 滚轮连续翻页（wheelPageScrollMode≠0）：新页强制滚到顶部/底部（连续阅读）；
+                // 其余场景（按钮翻页/指定范围跳页/缩放）按旧滚动比例恢复，保持页面相对位置不变（对齐原版）
+                if (isScrollMode && (oldScrollableW > 0 || oldScrollableH > 0) && wheelPageScrollMode == 0)
                 {
                     double rx = ratioX;
                     double ry = ratioY;
@@ -1010,13 +1116,24 @@ namespace PDFQFZ.WPF
                         previewScroll.ScrollToVerticalOffset(Math.Max(0, Math.Min(newY, previewScroll.ScrollableHeight)));
                     }), System.Windows.Threading.DispatcherPriority.Loaded);
                 }
+                if (wheelPageScrollMode != 0)
+                {
+                    int mode = wheelPageScrollMode;
+                    wheelPageScrollMode = 0;
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (previewViewMode != PreviewViewMode.Scroll) return;
+                        if (mode == 1) previewScroll.ScrollToVerticalOffset(0);
+                        else if (mode == 2) previewScroll.ScrollToVerticalOffset(previewScroll.ScrollableHeight);
+                    }), System.Windows.Threading.DispatcherPriority.Loaded);
+                }
 
                 UpdatePageNavButtons();
                 RefreshPreviewOverlays();
             }
             catch (Exception ex)
             {
-                AppendLog("渲染失败：" + ex.Message);
+                AppendLog("渲染失败：" + ex.Message, true);
             }
         }
 
@@ -1067,13 +1184,28 @@ namespace PDFQFZ.WPF
             UpdatePlacementOperationHint();
         }
 
+        /// <summary>双页视图：两页并排整页适应，固定 100% 不缩放不拖动；翻页按跨页（2 页）步进。</summary>
+        private void FitDouble()
+        {
+            previewViewMode = PreviewViewMode.DoublePage;
+            // 规整到包含当前页的跨页左页（0-based 偶数页），保证双页从奇数页码开始
+            currentPageIndex = (currentPageIndex / 2) * 2;
+            if (previewScroll != null)
+            {
+                previewScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+                previewScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
+                previewScroll.ScrollToHome();
+            }
+            UpdateViewModeButtons();
+            UpdatePageInfo();
+            RelayoutPreview();
+            UpdatePlacementOperationHint();
+        }
+
         private void FitWidth()
         {
-            // 放大视图：从 100%（整页 fit）起可放大到 300%，可滚动
-            if (previewViewMode != PreviewViewMode.Scroll || zoomPercent < PreviewZoomPolicy.MinimumPercent)
-            {
-                zoomPercent = PreviewZoomPolicy.MinimumPercent;
-            }
+            // 放大视图：进入时自动放大一档到 125%（整页 fit 的 125%，页面超出预览区，滚轮滚动/拖动立即有反馈），可继续放大到 300%
+            zoomPercent = PreviewZoomPolicy.FitWidthEntryPercent;
             previewViewMode = PreviewViewMode.Scroll;
             if (previewScroll != null)
             {
@@ -1085,13 +1217,14 @@ namespace PDFQFZ.WPF
             UpdatePlacementOperationHint();
         }
 
-        // 单页视图 / 放大视图 二选一选中态（ToggleButton 系统规范）
+        // 单页视图 / 双页视图 / 放大视图 三选一选中态（ToggleButton 系统规范）
         private bool suppressViewToggle;
 
         private void UpdateViewModeButtons()
         {
             suppressViewToggle = true;
             btnFitPage.IsChecked = previewViewMode == PreviewViewMode.SinglePage;
+            btnFitDouble.IsChecked = previewViewMode == PreviewViewMode.DoublePage;
             btnFitWidth.IsChecked = previewViewMode == PreviewViewMode.Scroll;
             suppressViewToggle = false;
         }
@@ -1120,7 +1253,7 @@ namespace PDFQFZ.WPF
             if (!PreviewZoomPolicy.TryParse(txtZoomNow.Text, out int percent, out string error))
             {
                 txtZoomNow.Text = ((int)Math.Round(zoomPercent)).ToString();
-                AppendLog(error);
+                AppendLog(error, true);
                 return;
             }
             zoomPercent = percent;
@@ -1134,10 +1267,24 @@ namespace PDFQFZ.WPF
         private void GoToPageInput()
         {
             if (pdfRenderer == null || pageCount <= 0) return;
-            if (!int.TryParse(txtPageNow.Text.Trim(), out int v)) { UpdatePageInfo(); return; }
+            if (!int.TryParse(txtPageNow.Text.Trim(), out int v))
+            {
+                // 双页视图页码格式 "3-4"：取 '-' 前的左页页码
+                int dash = txtPageNow.Text.IndexOf('-');
+                if (dash > 0 && int.TryParse(txtPageNow.Text.Substring(0, dash).Trim(), out int l))
+                {
+                    v = l;
+                }
+                else
+                {
+                    UpdatePageInfo();
+                    return;
+                }
+            }
             if (v < 1) v = 1;
             if (v > pageCount) v = pageCount;
-            currentPageIndex = v - 1;
+            // 双页视图：跳到包含第 v 页的跨页（左页为 0-based 偶数）
+            currentPageIndex = previewViewMode == PreviewViewMode.DoublePage ? ((v - 1) / 2) * 2 : v - 1;
             UpdatePageInfo();
             RelayoutPreview();
         }
@@ -1146,10 +1293,11 @@ namespace PDFQFZ.WPF
         {
             if (pdfRenderer == null || pageCount < 1 || e.Delta == 0) return;
 
-            // Ctrl+滚轮：缩放（步进 10，对齐原版 PreviewZoomPolicy.StepByWheel）
+            // Ctrl+滚轮：缩放（步进 10，对齐原版 PreviewZoomPolicy.StepByWheel；双页视图固定不缩放，禁用）
             if (Keyboard.Modifiers == ModifierKeys.Control)
             {
                 e.Handled = true;
+                if (previewViewMode == PreviewViewMode.DoublePage) return;
                 int direction = e.Delta > 0 ? 1 : -1;
                 int next = PreviewZoomPolicy.StepByWheel((int)Math.Round(zoomPercent), direction);
                 zoomPercent = next;
@@ -1160,17 +1308,46 @@ namespace PDFQFZ.WPF
                 return;
             }
 
-            // 放大视图：普通滚轮交给 ScrollViewer 滚动页面
-            if (previewViewMode == PreviewViewMode.Scroll) return;
+            // 放大视图：普通滚轮滚动页面；滚到边缘继续滚则翻页（连续阅读，对齐 PDF 阅读器通用行为）
+            if (previewViewMode == PreviewViewMode.Scroll)
+            {
+                if (previewScroll == null) return;
+                const double edge = 2.0;   // 边缘判定容差（px），抵消浮点精度
+                bool atBottom = previewScroll.VerticalOffset >= previewScroll.ScrollableHeight - edge;
+                bool atTop = previewScroll.VerticalOffset <= edge;
+                // 向下滚到底：翻下一页（新页从顶部开始，便于继续向下滚连续阅读）
+                if (e.Delta < 0 && atBottom && currentPageIndex < pageCount - 1)
+                {
+                    e.Handled = true;
+                    currentPageIndex++;
+                    wheelPageScrollMode = 1;
+                    UpdatePageInfo();
+                    RelayoutPreview();
+                    UpdatePlacementOperationHint();
+                    return;
+                }
+                // 向上滚到顶：翻上一页（回到上一页底部，便于继续向上滚连续回翻）
+                if (e.Delta > 0 && atTop && currentPageIndex > 0)
+                {
+                    e.Handled = true;
+                    currentPageIndex--;
+                    wheelPageScrollMode = 2;
+                    UpdatePageInfo();
+                    RelayoutPreview();
+                    UpdatePlacementOperationHint();
+                    return;
+                }
+                return;   // 未到边缘：交给 ScrollViewer 正常滚动
+            }
 
-            // 单页视图：滚轮翻页（对齐原版：累积 delta 达到一步翻一页）
+            // 单页/双页视图：滚轮翻页（对齐原版：累积 delta 达到一步翻一页；双页视图一步翻一个跨页）
             e.Handled = true;
             previewWheelDeltaRemainder += e.Delta;
             const int wheelThreshold = 120;
             if (Math.Abs(previewWheelDeltaRemainder) < wheelThreshold) return;
             int wheelStep = Math.Sign(previewWheelDeltaRemainder) * wheelThreshold;
             previewWheelDeltaRemainder -= wheelStep;
-            int targetPage = currentPageIndex + (wheelStep > 0 ? -1 : 1);
+            int targetPage = currentPageIndex + (wheelStep > 0 ? -1 : 1) * PageStep;
             if (targetPage >= 0 && targetPage < pageCount)
             {
                 currentPageIndex = targetPage;
@@ -1180,12 +1357,12 @@ namespace PDFQFZ.WPF
             }
         }
 
-        /// <summary>上一页/下一页边界禁用（对齐原版：第一页禁用上一页、最后一页禁用下一页）。</summary>
+        /// <summary>上一页/下一页边界禁用（对齐原版：第一页禁用上一页、最后一页禁用下一页；双页视图按跨页步进）。</summary>
         private void UpdatePageNavButtons()
         {
             if (btnPrev == null || btnNext == null) return;
-            btnPrev.IsEnabled = pdfRenderer != null && currentPageIndex > 0;
-            btnNext.IsEnabled = pdfRenderer != null && currentPageIndex < pageCount - 1;
+            btnPrev.IsEnabled = pdfRenderer != null && currentPageIndex >= PageStep;
+            btnNext.IsEnabled = pdfRenderer != null && currentPageIndex + PageStep < pageCount;
         }
 
         /// <summary>键盘翻页（对齐原版 PreviewNavigation_KeyDown）。</summary>
@@ -1203,9 +1380,9 @@ namespace PDFQFZ.WPF
 
             if (e.Key == Key.PageUp || e.Key == Key.Up || e.Key == Key.Left)
             {
-                if (currentPageIndex > 0)
+                if (currentPageIndex >= PageStep)
                 {
-                    currentPageIndex--;
+                    currentPageIndex -= PageStep;
                     UpdatePageInfo();
                     RelayoutPreview();
                 }
@@ -1213,9 +1390,9 @@ namespace PDFQFZ.WPF
             }
             else if (e.Key == Key.PageDown || e.Key == Key.Down || e.Key == Key.Right)
             {
-                if (currentPageIndex < pageCount - 1)
+                if (currentPageIndex + PageStep < pageCount)
                 {
-                    currentPageIndex++;
+                    currentPageIndex += PageStep;
                     UpdatePageInfo();
                     RelayoutPreview();
                 }
@@ -1265,12 +1442,31 @@ namespace PDFQFZ.WPF
                 return;
             }
 
-            // 页面物理宽度（pt）→ 显示换算基准
-            Bitmap current = pageCache.GetPage(currentPageIndex);
+            if (previewViewMode == PreviewViewMode.DoublePage)
+            {
+                // 双页视图：左页印章画到左 overlayCanvas，右页印章画到右 overlayCanvas
+                RenderPageOverlays(currentPageIndex, overlayCanvasLeft, doublePageLeftW, doublePageLeftH);
+                if (currentPageIndex + 1 < pageCount)
+                {
+                    RenderPageOverlays(currentPageIndex + 1, overlayCanvasRight, doublePageRightW, doublePageRightH);
+                }
+            }
+            else
+            {
+                RenderPageOverlays(currentPageIndex, overlayCanvas, displayWidth, displayHeight);
+            }
+        }
+
+        /// <summary>把指定页的印章按显示尺寸渲染到指定 Canvas 上（单页/双页共用）。</summary>
+        private void RenderPageOverlays(int pageIndex, System.Windows.Controls.Canvas canvas, double dispW, double dispH)
+        {
+            if (dispW <= 0 || dispH <= 0) return;
+            Bitmap current = pageCache.GetPage(pageIndex);
             if (current == null) return;
+            // 页面物理宽度（pt）→ 显示换算基准
             float pdfWidthPoints = current.Width * 72f / RenderDpi;
 
-            foreach (StampPlacement placement in stampPlacements.ForPage(sourcePath, currentPageIndex + 1))
+            foreach (StampPlacement placement in stampPlacements.ForPage(sourcePath, pageIndex + 1))
             {
                 try
                 {
@@ -1281,7 +1477,7 @@ namespace PDFQFZ.WPF
                             stampBitmap.HorizontalResolution,
                             stampBitmap.Width,
                             stampBitmap.Height,
-                            (float)displayWidth,
+                            (float)dispW,
                             pdfWidthPoints,
                             80);
                         BitmapSource stampSource = ToBitmapSource(stampBitmap);
@@ -1294,15 +1490,15 @@ namespace PDFQFZ.WPF
                             Tag = placement.Id,
                             Cursor = Cursors.Hand
                         };
-                        System.Windows.Controls.Canvas.SetLeft(image, (displayWidth - overlaySize.Width) * placement.X);
-                        System.Windows.Controls.Canvas.SetTop(image, (displayHeight - overlaySize.Height) * placement.Y);
-                        overlayCanvas.Children.Add(image);
+                        System.Windows.Controls.Canvas.SetLeft(image, (dispW - overlaySize.Width) * placement.X);
+                        System.Windows.Controls.Canvas.SetTop(image, (dispH - overlaySize.Height) * placement.Y);
+                        canvas.Children.Add(image);
                         overlayImages[placement.Id] = image;
                     }
                 }
                 catch (Exception ex)
                 {
-                    AppendLog("叠加显示异常:" + ex.Message);
+                    AppendLog("叠加显示异常:" + ex.Message, true);
                 }
             }
         }
@@ -1312,6 +1508,8 @@ namespace PDFQFZ.WPF
             foreach (var image in overlayImages.Values)
             {
                 overlayCanvas.Children.Remove(image);
+                overlayCanvasLeft.Children.Remove(image);
+                overlayCanvasRight.Children.Remove(image);
             }
             overlayImages.Clear();
         }
@@ -1371,15 +1569,15 @@ namespace PDFQFZ.WPF
         // ===================== 点击盖章 + 拖动平移 =====================
 
         /// <summary>
-        /// 实时命中检测：返回指定坐标下带 Tag 的印章 Image。
+        /// 实时命中检测：返回指定坐标下带 Tag 的印章 Image（单页/双页左右 Canvas 共用）。
         /// 不依赖 e.OriginalSource——盖章会在鼠标下方动态创建新 Image，
         /// WPF 缓存的命中元素在鼠标移动前不会刷新，会导致不移动鼠标时命中检测失效。
         /// </summary>
-        private System.Windows.Controls.Image HitTestStampImage(System.Windows.Point canvasPos)
+        private System.Windows.Controls.Image HitTestStampImage(System.Windows.Point canvasPos, System.Windows.Controls.Canvas canvas)
         {
             System.Windows.Controls.Image found = null;
             VisualTreeHelper.HitTest(
-                overlayCanvas,
+                canvas,
                 null,
                 result =>
                 {
@@ -1405,7 +1603,7 @@ namespace PDFQFZ.WPF
             panStartOffsetX = previewScroll.HorizontalOffset;
             panStartOffsetY = previewScroll.VerticalOffset;
             isDraggingPreview = false;
-            overlayCanvas.CaptureMouse();
+            ((System.Windows.Controls.Canvas)sender).CaptureMouse();
             e.Handled = true;
         }
 
@@ -1439,17 +1637,18 @@ namespace PDFQFZ.WPF
 
         private void OnPreviewCanvasMouseUp(object sender, MouseButtonEventArgs e)
         {
-            overlayCanvas.ReleaseMouseCapture();
+            var canvas = (System.Windows.Controls.Canvas)sender;
+            canvas.ReleaseMouseCapture();
             if (isDraggingPreview)
             {
                 isDraggingPreview = false;
                 return;
             }
-            var upPos = e.GetPosition(overlayCanvas);
+            var upPos = e.GetPosition(canvas);
             // 左键单击 → 立即放置印章（包括单击已有印章可叠加盖章）
             if (comboPageStamp.SelectedIndex == 0 && !specifiedRangeFirstClickPending) return;
             int stampType = specifiedRangeFirstClickPending ? SpecifiedPageStampType : CustomPlacementStampType;
-            AddPreviewStampAtPoint(upPos, stampType);
+            AddPreviewStampAtPoint(upPos, stampType, canvas);
             e.Handled = true;
         }
 
@@ -1457,7 +1656,8 @@ namespace PDFQFZ.WPF
         private void OnPreviewCanvasMouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (pdfRenderer == null || isGenerating) return;
-            var clickedImage = HitTestStampImage(e.GetPosition(overlayCanvas));
+            var canvas = (System.Windows.Controls.Canvas)sender;
+            var clickedImage = HitTestStampImage(e.GetPosition(canvas), canvas);
             if (clickedImage != null)
             {
                 DeleteStampByImage(clickedImage);
@@ -1465,7 +1665,7 @@ namespace PDFQFZ.WPF
             e.Handled = true;
         }
 
-        private void AddPreviewStampAtPoint(System.Windows.Point pos, int stampType)
+        private void AddPreviewStampAtPoint(System.Windows.Point pos, int stampType, System.Windows.Controls.Canvas sourceCanvas)
         {
             string stampPath = SelectedStampPath();
             if (!File.Exists(stampPath))
@@ -1475,10 +1675,28 @@ namespace PDFQFZ.WPF
             }
 
             System.Drawing.Size overlaySize = CalculateCurrentOverlaySize();
+            int targetPage = currentPageIndex + 1;
+            double dispW = displayWidth;
+            double dispH = displayHeight;
+            // 双页视图：落在哪个 canvas 就盖到对应页（右页坐标换算为该页内部坐标）
+            if (previewViewMode == PreviewViewMode.DoublePage)
+            {
+                if (sourceCanvas == overlayCanvasRight)
+                {
+                    targetPage = currentPageIndex + 2;
+                    dispW = doublePageRightW;
+                    dispH = doublePageRightH;
+                }
+                else
+                {
+                    dispW = doublePageLeftW;
+                    dispH = doublePageLeftH;
+                }
+            }
             double x = pos.X - overlaySize.Width / 2.0;
             double y = pos.Y - overlaySize.Height / 2.0;
-            double picw = Math.Max(0, displayWidth - overlaySize.Width);
-            double pich = Math.Max(0, displayHeight - overlaySize.Height);
+            double picw = Math.Max(0, dispW - overlaySize.Width);
+            double pich = Math.Max(0, dispH - overlaySize.Height);
             if (x < 0) x = 0;
             if (y < 0) y = 0;
             if (x > picw) x = picw;
@@ -1486,7 +1704,7 @@ namespace PDFQFZ.WPF
             float px = picw == 0 ? 0f : (float)(x / picw);
             float py = pich == 0 ? 0f : (float)(y / pich);
 
-            AddPreviewStamp(px, py, stampPath, stampType);
+            AddPreviewStamp(px, py, stampPath, stampType, targetPage);
             RefreshPreviewOverlays();
         }
 
@@ -1533,7 +1751,7 @@ namespace PDFQFZ.WPF
             return baseRotation;
         }
 
-        private void AddPreviewStamp(float px, float py, string stampPath, int stampType)
+        private void AddPreviewStamp(float px, float py, string stampPath, int stampType, int pageNumber = 0)
         {
             int sizeMm = GetSizeValue();
             int currentOpacity = GetOpacityValue();
@@ -1543,7 +1761,7 @@ namespace PDFQFZ.WPF
             bool useOriginalRotationCrop = comboRotationHandle.SelectedIndex == 0;
 
             if (stampType == SpecifiedPageStampType && specifiedRangeFirstClickPending &&
-                specifiedPageRange != null && currentPageIndex + 1 == specifiedPageRange.EndPage)
+                specifiedPageRange != null && IsAtSpecifiedEndPage())
             {
                 activeSpecifiedBatchId = stampPlacements.CreateBatchId();
                 for (int page = specifiedPageRange.StartPage; page <= specifiedPageRange.EndPage; page++)
@@ -1560,9 +1778,19 @@ namespace PDFQFZ.WPF
                 return;
             }
 
-            stampPlacements.Add(sourcePath, currentPageIndex + 1, px, py, stampPath, sizeMm,
+            int targetPage = pageNumber > 0 ? pageNumber : currentPageIndex + 1;
+            stampPlacements.Add(sourcePath, targetPage, px, py, stampPath, sizeMm,
                 currentOpacity, GetEffectiveRotation(currentRotation), whiteTolerance, useWhiteTransparency,
                 useOriginalRotationCrop);
+        }
+
+        /// <summary>判断当前视图是否正显示指定范围盖章的最后一页（单页=当前页；双页=左页或右页）。</summary>
+        private bool IsAtSpecifiedEndPage()
+        {
+            if (specifiedPageRange == null) return false;
+            int end = specifiedPageRange.EndPage;
+            if (currentPageIndex + 1 == end) return true;
+            return previewViewMode == PreviewViewMode.DoublePage && currentPageIndex + 2 == end;
         }
 
         // ===================== 按文字盖章 =====================
@@ -1713,7 +1941,7 @@ namespace PDFQFZ.WPF
                 if (appendToExistingBatch && addedCount == 0)
                 {
                     AppendLog(string.Format("按文字盖章完成：关键词“{0}”，本次搜索到 {1} 处，位置上次都已盖过，无新增印章。", keyword, matches.Count));
-                    SetOperationHint("按文字盖章完成：无新增，详见左侧");
+                    SetOperationHint("按文字盖章完成：无新增，详见下方日志");
                     RefreshPreviewOverlays();
                     return;
                 }
@@ -1739,7 +1967,7 @@ namespace PDFQFZ.WPF
                     AppendLog(string.Format(
                         "按文字盖章完成：关键词“{0}”，本次搜索到 {1} 处，新增盖了 {2} 个，已在 {3} 盖章，其余 {4} 处上次已盖过。右键单个章可删除，或点击“撤销放置”逐步撤销。",
                         keyword, matches.Count, addedCount, pageDisplay, skippedCount));
-                    SetOperationHint(string.Format("按文字盖章完成：新增 {0} 个，详见左侧", addedCount));
+                    SetOperationHint(string.Format("按文字盖章完成：新增 {0} 个，详见下方日志", addedCount));
                 }
                 else if (contextKeywords.Length > 0 && matches.Count < allMatches.Count)
                 {
@@ -1748,14 +1976,14 @@ namespace PDFQFZ.WPF
                     AppendLog(string.Format(
                         "按文字盖章完成：关键词“{0}”，共找到 {1} 处，其中 {2} 处附近有关键词，已在 {3} 盖章。关键词（共 {4} 个）：{5} | 匹配模式：{6}。右键单个章可删除，或点击“撤销放置”逐步撤销。",
                         keyword, allMatches.Count, matches.Count, pageDisplay, contextKeywords.Length, kwDisplay, modeDisplay));
-                    SetOperationHint(string.Format("按文字盖章完成：{0} 处，详见左侧", matches.Count));
+                    SetOperationHint(string.Format("按文字盖章完成：{0} 处，详见下方日志", matches.Count));
                 }
                 else
                 {
                     AppendLog(string.Format(
                         "按文字盖章完成：关键词“{0}”，共找到 {1} 处，已在 {2} 盖章。右键单个章可删除，或点击“撤销放置”逐步撤销。",
                         keyword, matches.Count, pageDisplay));
-                    SetOperationHint(string.Format("按文字盖章完成：{0} 处，详见左侧", matches.Count));
+                    SetOperationHint(string.Format("按文字盖章完成：{0} 处，详见下方日志", matches.Count));
                 }
             }
             catch (Exception ex)
@@ -1844,8 +2072,10 @@ namespace PDFQFZ.WPF
 
             specifiedPageRange = dlg.Result;
             specifiedRangeFirstClickPending = true;
-            // 对齐原版：跳转到指定范围最后一页，等待单击设置位置
-            currentPageIndex = specifiedPageRange.EndPage - 1;
+            // 对齐原版：跳转到指定范围最后一页，等待单击设置位置（双页视图跳到包含最后一页的跨页）
+            currentPageIndex = previewViewMode == PreviewViewMode.DoublePage
+                ? ((specifiedPageRange.EndPage - 1) / 2) * 2
+                : specifiedPageRange.EndPage - 1;
             UpdatePageInfo();
             RelayoutPreview();
             // 原版：等待单击的提示由 UpdatePlacementOperationHint 写入右侧操作提示区，不写左侧日志区
@@ -1991,7 +2221,7 @@ namespace PDFQFZ.WPF
                 if (!StampEngine.PrepareStampResources(options, out Bitmap seamImage, out float xzbl,
                         out X509Certificate2 cert, msg => AppendLog(msg)))
                 {
-                    AppendLog("准备失败，未开始盖章，请检查上面的提示。");
+                    AppendLog("准备失败，未开始盖章，请检查上面的提示。", true);
                     return;
                 }
 
@@ -2015,7 +2245,7 @@ namespace PDFQFZ.WPF
             }
             catch (Exception ex)
             {
-                AppendLog("盖章过程中发生错误：" + ex.Message);
+                AppendLog("盖章过程中发生错误：" + ex.Message, true);
             }
             finally
             {
@@ -2063,7 +2293,7 @@ namespace PDFQFZ.WPF
                         else
                         {
                             hasFailures = true;
-                            AppendLog("失败！“" + fileInfo.Name + "”盖章失败！");
+                            AppendLog("失败！“" + fileInfo.Name + "”盖章失败！", true);
                         }
                     }
                 }
@@ -2106,7 +2336,7 @@ namespace PDFQFZ.WPF
                         else
                         {
                             hasFailures = true;
-                            AppendLog("失败！“" + filename + "”盖章失败！");
+                            AppendLog("失败！“" + filename + "”盖章失败！", true);
                         }
                     }
                 }
@@ -2114,7 +2344,7 @@ namespace PDFQFZ.WPF
             }
             catch (Exception ex)
             {
-                AppendLog("处理过程中发生错误：" + ex.Message);
+                AppendLog("处理过程中发生错误：" + ex.Message, true);
                 return true;
             }
         }
@@ -2159,21 +2389,35 @@ namespace PDFQFZ.WPF
             "6、预览操作：单页视图下滚轮翻页，Ctrl+滚轮缩放；放大视图下按住左键拖动页面。\n" +
             "7、确认预览无误后，点击\"盖章并生成文件\"输出最终文件。";
 
-        private void AppendLog(string line)
+        private void AppendLog(string line, bool isError = false)
         {
+            if (string.IsNullOrEmpty(line)) return;
             if (!Dispatcher.CheckAccess())
             {
-                Dispatcher.Invoke(new Action(() => AppendLog(line)));
+                Dispatcher.Invoke(new Action(() => AppendLog(line, isError)));
                 return;
             }
             if (logContainsOnlyHelp)
             {
-                logText.Text = "";
+                logText.Inlines.Clear();
                 logContainsOnlyHelp = false;
             }
-            // 每条日志前缀时间戳 [HH:mm:ss]，日志之间用单换行+较小行高实现半行间距
+            // 每条日志前缀时间戳 [HH:mm:ss]，日志之间用单换行+较小行高实现半行间距；错误红色，其余黑色
             string timestampedLine = "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + line;
-            logText.Text = logText.Text.Length == 0 ? timestampedLine : logText.Text + "\n" + timestampedLine;
+            var run = new System.Windows.Documents.Run(timestampedLine);
+            if (isError)
+            {
+                run.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xB2, 0x22, 0x22));
+            }
+            if (logText.Inlines.Count == 0)
+            {
+                logText.Inlines.Add(run);
+            }
+            else
+            {
+                logText.Inlines.Add(new System.Windows.Documents.Run("\n"));
+                logText.Inlines.Add(run);
+            }
             // 追加文字后自动滚动到底部，确保最新内容可见。
             // 注意：文本追加后立即 ScrollToEnd 时，ScrollViewer 内部可能尚未完成内容测量，
             // 布局完成后滚动位置会被重置回顶部；这里再延迟滚动一次到底，保证最终停在最新一行。
@@ -2200,19 +2444,155 @@ namespace PDFQFZ.WPF
                 hasPreview, directoryMode, directorySelected, specifiedPending, pageStampEnabled, previewViewMode));
         }
 
-        /// <summary>设置操作提示区文字（原版 SetOperationHint；isError 时红色提示）。跨线程安全。</summary>
+        // ===== 工具栏响应式布局：组间间距分档压缩 + 按钮文字缩短 =====
+        private const double ToolbarGapExpanded = 22;   // 展开档：组间空白充裕
+        private const double ToolbarGapCompact = 12;    // 紧凑档：略窄
+        private const double ToolbarGapMin = 8;         // 极限档：很窄
+        private bool toolbarSpacingBusy;                // 防重入：判定过程中忽略后续 SizeChanged
+        private int toolbarTextLevel = 0;               // 文字档：0=完整文字，1=双字，2=单字
+
+        /// <summary>工具栏尺寸变化入口：只响应宽度变化，延迟到布局完成后再判定，防止换行→高度变化→再判定的振荡。</summary>
+        private void OnToolbarSizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (!e.WidthChanged || toolbarSpacingBusy) return;
+            toolbarSpacingBusy = true;
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try { UpdateToolbarSpacing(); }
+                finally { toolbarSpacingBusy = false; }
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        /// <summary>设置组间空白（分隔线两侧到相邻组的距离），组内间距不动。</summary>
+        private void SetToolbarGap(double side)
+        {
+            txtPageTotal.Margin = new Thickness(0, 0, side, 0);
+            previewToolbarSep1.Margin = new Thickness(0, 0, side, 0);
+            txtPercent.Margin = new Thickness(0, 0, side, 0);
+            previewToolbarSep2.Margin = new Thickness(0, 0, side, 0);
+        }
+
+        /// <summary>切换按钮文字档位（0=全部完整；1=翻页/缩放缩短、视图完整；2=翻页/缩放缩短、视图双字；3=翻页/缩放缩短、视图单字），窗口恢复时还原。
+        /// 缩减优先级：先缩"上一页/下一页/缩小/放大"，最后才缩视图按钮。</summary>
+        private void SetToolbarText(int level)
+        {
+            if (toolbarTextLevel == level) return;
+            toolbarTextLevel = level;
+            // 翻页/缩放组：level>=1 即缩短为符号
+            btnPrev.Content = level >= 1 ? "◀" : "上一页";
+            btnNext.Content = level >= 1 ? "▶" : "下一页";
+            btnZoomOut.Content = level >= 1 ? "−" : "缩小";
+            btnZoomIn.Content = level >= 1 ? "+" : "放大";
+            // 视图组三态：level<=1 完整文字；level==2 双字；level==3 单字
+            if (level <= 1)
+            {
+                btnFitPage.Content = "单页视图"; btnFitWidth.Content = "放大视图"; btnFitDouble.Content = "双页视图";
+            }
+            else if (level == 2)
+            {
+                btnFitPage.Content = "单页"; btnFitWidth.Content = "放大"; btnFitDouble.Content = "双页";
+            }
+            else
+            {
+                btnFitPage.Content = "单"; btnFitWidth.Content = "放"; btnFitDouble.Content = "双";
+            }
+        }
+
+        /// <summary>按可用宽度自动选档。判定方式：设置档位后强制立即布局（UpdateLayout），按 WrapPanel 实际高度是否仍为单行来判断，
+        /// 确保计算与屏幕显示一致。档位顺序（从宽到窄）：全部完整+22 → 全部完整+12 → 全部完整+8 → 翻页/缩放缩短+8
+        /// → 视图双字+8 → 视图单字+8 → WrapPanel 换行兜底。缩减优先级：先缩翻页/缩放按钮，最后缩视图按钮。</summary>
+        private void UpdateToolbarSpacing()
+        {
+            if (previewToolbarWrap == null || previewToolbar.ActualWidth <= 0) return;
+            double avail = previewToolbar.ActualWidth - 18; // Border Padding 左右各 8 + BorderThickness 左右各 1
+            if (avail <= 40) return;
+            int[][] steps =
+            {
+                new[] { 0, 22 },  // 全部完整 + 展开
+                new[] { 0, 12 },  // 全部完整 + 紧凑
+                new[] { 0, 8 },   // 全部完整 + 极限
+                new[] { 1, 8 },   // 翻页/缩放缩短（视图仍完整）
+                new[] { 2, 8 },   // 视图双字
+                new[] { 3, 8 }    // 视图单字
+            };
+            foreach (var st in steps)
+            {
+                SetToolbarGap(st[1]);
+                SetToolbarText(st[0]);
+                previewToolbarWrap.UpdateLayout();
+                if (IsToolbarSingleRow()) return;
+            }
+            // 全部放不下 → 保持视图单字+8，由 WrapPanel 自动换行兜底
+        }
+
+        /// <summary>工具栏是否为单行：WrapPanel 单行高约 26，两行高约 52+，以 40 为界。</summary>
+        private bool IsToolbarSingleRow()
+        {
+            return previewToolbarWrap.ActualHeight > 0 && previewToolbarWrap.ActualHeight <= 40;
+        }
+
+        /// <summary>操作提示行（左下角顶部固定行）：显示最新一条操作说明/反馈/进度，新替换旧；isError 时红色。</summary>
         private void SetOperationHint(string text, bool isError = false)
         {
-            if (txtModeHint == null) return;
+            if (txtOperationHint == null) return;
             if (!Dispatcher.CheckAccess())
             {
                 Dispatcher.BeginInvoke(new Action(() => SetOperationHint(text, isError)));
                 return;
             }
-            txtModeHint.Text = text;
-            txtModeHint.Foreground = isError
+            txtOperationHint.Text = text;
+            txtOperationHint.Foreground = isError
                 ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xB2, 0x22, 0x22))
                 : new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1F, 0x4E, 0x79));
+        }
+
+        /// <summary>分隔条拖动完成：把左栏宽度写入配置，下次启动恢复。</summary>
+        private void GridSplitter_DragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
+        {
+            // 拖动结束瞬间列宽可能尚未重新布局（ActualWidth 还是旧值），延迟到布局完成后读取，再立即写盘
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (leftPanelColumn == null) return;
+                AppConfig.LeftPanelWidth = (int)Math.Round(leftPanelColumn.ActualWidth);
+                AppConfig.SaveLeftPanelWidth();
+                try
+                {
+                    System.IO.File.AppendAllText(
+                        System.IO.Path.Combine(AppContext.BaseDirectory, "splitter_diag.log"),
+                        "[" + DateTime.Now.ToString("HH:mm:ss") + "] 拖动保存: ActualWidth=" + leftPanelColumn.ActualWidth + "\r\n");
+                }
+                catch
+                {
+                }
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        /// <summary>启动时恢复上次拖动的左栏宽度（限制在合理范围，避免窗口过窄时挤压预览区）。</summary>
+        private void RestoreLeftPanelWidth()
+        {
+            var diag = new System.Text.StringBuilder();
+            try
+            {
+                if (leftPanelColumn == null || AppConfig.LeftPanelWidth <= 0) return;
+                double minLeft = leftPanelColumn.MinWidth > 0 ? leftPanelColumn.MinWidth : 420;
+                double maxLeft = Math.Max(minLeft, this.ActualWidth * 0.6);
+                double w = Math.Max(minLeft, Math.Min(AppConfig.LeftPanelWidth, maxLeft));
+                leftPanelColumn.Width = new GridLength(w);
+                diag.Append("[" + DateTime.Now.ToString("HH:mm:ss") + "] 恢复左栏: 配置=" + AppConfig.LeftPanelWidth
+                    + ", 窗口宽=" + this.ActualWidth + ", min=" + minLeft + ", max=" + maxLeft
+                    + ", 设置=" + w + ", 设置后ActualWidth=" + leftPanelColumn.ActualWidth + "\r\n");
+            }
+            finally
+            {
+                try
+                {
+                    System.IO.File.AppendAllText(
+                        System.IO.Path.Combine(AppContext.BaseDirectory, "splitter_diag.log"), diag.ToString());
+                }
+                catch
+                {
+                }
+            }
         }
 
         // ===================== 保存阶段动态提示（对齐原版省略号动画 + 已用时） =====================
