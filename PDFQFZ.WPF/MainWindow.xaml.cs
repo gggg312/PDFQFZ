@@ -89,6 +89,8 @@ namespace PDFQFZ.WPF
 
         // 当前选中的印章文件名（用于按印章分别保存/恢复参数）
         private string _currentStampFileName = "";
+        private bool _maxSplitUserModified;        // 用户是否手动改过骑缝章分割数（自动重置不写入印章记忆）
+        private bool _suppressMaxSplitTrack;       // 代码赋值 txtMaxSplit 时抑制 TextChanged 标记
 
         public MainWindow(string[] args)
         {
@@ -342,6 +344,12 @@ namespace PDFQFZ.WPF
             btnFoldSealParams.Click += (s, e) => ToggleFold(sealParamsContent, foldSealParamsArrow, foldSealParamsText);
             btnFoldOther.Click += (s, e) => ToggleFold(otherContent, foldOtherArrow, foldOtherText);
             btnFoldAutoText.Click += (s, e) => ToggleFold(autoTextContent, foldAutoTextArrow, foldAutoTextText);
+            // 用户手动修改分割数（代码赋值由 _suppressMaxSplitTrack 抑制，不算手动）
+            txtMaxSplit.TextChanged += (s, e) =>
+            {
+                if (_suppressMaxSplitTrack) return;
+                _maxSplitUserModified = true;
+            };
             // 切换骑缝章类型时给出操作提示（单页=正向/奇数页，双页=反向/偶数页）
             comboSeam.SelectionChanged += (s, e) =>
             {
@@ -357,6 +365,11 @@ namespace PDFQFZ.WPF
                 else if (qfzType == 4)
                 {
                     SetOperationHint("随意骑缝章：所有放置过印章的页面都加盖骑缝章（跟随已盖章页面）");
+                }
+                // 切换骑缝章类型时分割数跟随文档自动调整（不加/目录模式除外）
+                if (qfzType != 1 && !currentSourceIsDirectory)
+                {
+                    UpdateMaxSplitFromPdf();
                 }
             };
 
@@ -786,7 +799,9 @@ namespace PDFQFZ.WPF
                     RandomRange = TryParseInt(txtRandomRange.Text, 0, 90, out int rr) ? rr : 5,
                     RemoveWhite = chkRemoveWhite.IsChecked == true,
                     Tolerance = TryParseInt(txtTolerance.Text, 0, 50, out int t) ? t : 20,
-                    MaxSplit = TryParseInt(txtMaxSplit.Text, 1, 10000, out int ms) ? ms : 500
+                    MaxSplit = _maxSplitUserModified
+                        ? (TryParseInt(txtMaxSplit.Text, 1, 10000, out int ms) ? ms : 500)
+                        : -1   // 未手动修改：-1 表示不更新印章记忆中的分割数
                 };
                 AppConfig.SaveStampParams(_currentStampFileName, p);
             }
@@ -794,6 +809,30 @@ namespace PDFQFZ.WPF
             {
                 // 保存失败不影响主流程
             }
+        }
+
+        /// <summary>骑缝章分割数跟随文档自动调整：非“不加骑缝章”且非目录模式时，
+        /// 按当前骑缝章类型的实际骑缝章页数重置分割数（单页=奇数页数、双页=偶数页数、加盖/随意=总页数）。
+        /// 自动重置不算手动修改，不写入印章记忆。</summary>
+        private void UpdateMaxSplitFromPdf()
+        {
+            if (currentSourceIsDirectory || pdfRenderer == null || pageCount <= 0)
+            {
+                return; // 目录模式各文件页数不同，不自动重置
+            }
+            int qfzType = SeamBusinessFromDisplay(comboSeam.SelectedIndex);
+            if (qfzType == 1)
+            {
+                return; // 不加骑缝章：保留原值
+            }
+            // 所有骑缝章类型统一按总页数作为默认分割数：
+            // 引擎按实际骑缝章页数分配章条，单页/双页无需减半，直接给总页数即可。
+            int pages = pageCount;
+            if (pages < 1) pages = 1;
+            _suppressMaxSplitTrack = true;
+            _maxSplitUserModified = false;
+            txtMaxSplit.Text = pages.ToString();
+            _suppressMaxSplitTrack = false;
         }
 
         /// <summary>把印章参数应用到界面控件。</summary>
@@ -811,7 +850,13 @@ namespace PDFQFZ.WPF
             txtRandomRange.Text = p.RandomRange.ToString();
             chkRemoveWhite.IsChecked = p.RemoveWhite;
             txtTolerance.Text = p.Tolerance.ToString();
-            if (p.MaxSplit > 0) txtMaxSplit.Text = p.MaxSplit.ToString();
+            if (p.MaxSplit > 0)
+            {
+                _suppressMaxSplitTrack = true;
+                _maxSplitUserModified = false;
+                txtMaxSplit.Text = p.MaxSplit.ToString();
+                _suppressMaxSplitTrack = false;
+            }
             UpdateToleranceEnabled();
         }
 
@@ -912,6 +957,7 @@ namespace PDFQFZ.WPF
                 UpdatePageInfo();
                 RelayoutPreview();
                 UpdatePlacementOperationHint();
+                UpdateMaxSplitFromPdf();
             }
             catch (Exception ex)
             {

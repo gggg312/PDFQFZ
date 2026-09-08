@@ -471,7 +471,7 @@ namespace PDFQFZ.WPF.Services
                 ini.WriteIniInt(sec, "randomRange", p.RandomRange);
                 ini.WriteIniInt(sec, "removeWhite", p.RemoveWhite ? 1 : 0);
                 ini.WriteIniInt(sec, "tolerance", p.Tolerance);
-                ini.WriteIniInt(sec, "maxSplit", p.MaxSplit);
+                if (p.MaxSplit > 0) ini.WriteIniInt(sec, "maxSplit", p.MaxSplit);
             }
             catch
             {
