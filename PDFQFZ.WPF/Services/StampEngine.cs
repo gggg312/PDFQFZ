@@ -337,6 +337,7 @@ namespace PDFQFZ.WPF.Services
                                     placementHeight,
                                     placement.X,
                                     1f - placement.Y,
+                                    placement.CenterRatio,
                                     out placementX,
                                     out placementY);
                                 placementImage.SetAbsolutePosition(placementX, placementY);
@@ -469,18 +470,29 @@ namespace PDFQFZ.WPF.Services
             float imageHeight,
             float widthRatio,
             float heightRatio,
+            bool centerRatio,
             out float x,
             out float y)
         {
+            // centerRatio=true（手动/范围页盖章）：印章中心在页面内的比例，超出部分由页面边界自然裁剪；
+            // centerRatio=false（按文字盖章）：印章完整在页面内（左上角在"页面减章宽"区间内的比例）
             if (pageRotation == 90 || pageRotation == 270)
             {
-                x = (pageSize.Height - imageWidth) * widthRatio;
-                y = (pageSize.Width - imageHeight) * heightRatio;
+                x = centerRatio
+                    ? pageSize.Height * widthRatio - imageWidth / 2f
+                    : (pageSize.Height - imageWidth) * widthRatio;
+                y = centerRatio
+                    ? pageSize.Width * heightRatio - imageHeight / 2f
+                    : (pageSize.Width - imageHeight) * heightRatio;
             }
             else
             {
-                x = (pageSize.Width - imageWidth) * widthRatio;
-                y = (pageSize.Height - imageHeight) * heightRatio;
+                x = centerRatio
+                    ? pageSize.Width * widthRatio - imageWidth / 2f
+                    : (pageSize.Width - imageWidth) * widthRatio;
+                y = centerRatio
+                    ? pageSize.Height * heightRatio - imageHeight / 2f
+                    : (pageSize.Height - imageHeight) * heightRatio;
             }
         }
 

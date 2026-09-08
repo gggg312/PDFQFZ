@@ -95,8 +95,8 @@ namespace PDFQFZ.WPF
             InitializeComponent();
             logText.Text = InitialHelpText;   // 初始显示帮助说明（对齐原版）
             logContainsOnlyHelp = true;
-            InitFoldState();
             LoadConfigToUi();
+            InitFoldState();   // 需在 LoadConfigToUi（内含 AppConfig.LoadFromIni）之后，才能按配置恢复折叠状态
             HookEvents();
             HookAutoKeywordWatermark();
             HookContextFilterEvents();
@@ -111,12 +111,25 @@ namespace PDFQFZ.WPF
         // ===================== 初始化 =====================
         private void InitFoldState()
         {
-            sealParamsContent.Visibility = Visibility.Collapsed;
-            otherContent.Visibility = Visibility.Collapsed;
-            foldSealParamsArrow.Text = "▶";
-            foldSealParamsText.Text = "展开设置";
-            foldOtherArrow.Text = "▶";
-            foldOtherText.Text = "展开设置";
+            // 按配置恢复 3/4/5 的展开收起状态（config.ini 关闭时保存，首次默认：按文字盖章展开、印章参数/其他设置折叠）
+            ApplyFoldState(autoTextContent, foldAutoTextArrow, foldAutoTextText, AppConfig.FoldAutoText == 1);
+            ApplyFoldState(sealParamsContent, foldSealParamsArrow, foldSealParamsText, AppConfig.FoldSealParams == 1);
+            ApplyFoldState(otherContent, foldOtherArrow, foldOtherText, AppConfig.FoldOther == 1);
+        }
+
+        /// <summary>按指定展开状态设置折叠区域（内容可见性、箭头、文字、展开红字提醒）。</summary>
+        private static void ApplyFoldState(System.Windows.Controls.StackPanel content,
+                                           System.Windows.Controls.TextBlock arrow,
+                                           System.Windows.Controls.TextBlock text,
+                                           bool expanded)
+        {
+            content.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+            arrow.Text = expanded ? "▼" : "▶";
+            text.Text = expanded ? "收起设置" : "展开设置";
+            System.Windows.Media.Brush redBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xCC, 0x33, 0x33));
+            System.Windows.Media.Brush defaultBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x66, 0x66, 0x66));
+            arrow.Foreground = expanded ? redBrush : defaultBrush;
+            text.Foreground = expanded ? redBrush : defaultBrush;
         }
 
         /// <summary>把 config.ini 的值填入界面控件。</summary>
@@ -328,6 +341,7 @@ namespace PDFQFZ.WPF
 
             btnFoldSealParams.Click += (s, e) => ToggleFold(sealParamsContent, foldSealParamsArrow, foldSealParamsText);
             btnFoldOther.Click += (s, e) => ToggleFold(otherContent, foldOtherArrow, foldOtherText);
+            btnFoldAutoText.Click += (s, e) => ToggleFold(autoTextContent, foldAutoTextArrow, foldAutoTextText);
 
             btnGenerate.Click += async (s, e) => await OnGenerateClickAsync();
             btnAutoPlace.Click += (s, e) => OnAutoPlaceClick();
@@ -354,6 +368,9 @@ namespace PDFQFZ.WPF
             Closing += (s, e) =>
             {
                 SaveCurrentStampParams();
+                AppConfig.FoldAutoText = autoTextContent.Visibility == Visibility.Visible ? 1 : 0;
+                AppConfig.FoldSealParams = sealParamsContent.Visibility == Visibility.Visible ? 1 : 0;
+                AppConfig.FoldOther = otherContent.Visibility == Visibility.Visible ? 1 : 0;
                 AppConfig.SaveWindowState(Left, Top, Width, Height);
             };
 
@@ -744,7 +761,7 @@ namespace PDFQFZ.WPF
             {
                 AppConfig.StampParams p = new AppConfig.StampParams
                 {
-                    Size = TryParseInt(txtStampSize.Text, 1, 100, out int s) ? s : 40,
+                    Size = TryParseInt(txtStampSize.Text, 1, 500, out int s) ? s : 40,
                     Rotation = TryParseInt(txtRotation.Text, -360, 360, out int r) ? r : 0,
                     RotationHandle = comboRotationHandle.SelectedIndex >= 0 ? comboRotationHandle.SelectedIndex : 0,
                     Opacity = TryParseInt(txtOpacity.Text, 0, 100, out int o) ? o : 60,
@@ -1490,8 +1507,14 @@ namespace PDFQFZ.WPF
                             Tag = placement.Id,
                             Cursor = Cursors.Hand
                         };
-                        System.Windows.Controls.Canvas.SetLeft(image, (dispW - overlaySize.Width) * placement.X);
-                        System.Windows.Controls.Canvas.SetTop(image, (dispH - overlaySize.Height) * placement.Y);
+                        double overlayLeft = placement.CenterRatio
+                            ? dispW * placement.X - overlaySize.Width / 2.0
+                            : (dispW - overlaySize.Width) * placement.X;
+                        double overlayTop = placement.CenterRatio
+                            ? dispH * placement.Y - overlaySize.Height / 2.0
+                            : (dispH - overlaySize.Height) * placement.Y;
+                        System.Windows.Controls.Canvas.SetLeft(image, overlayLeft);
+                        System.Windows.Controls.Canvas.SetTop(image, overlayTop);
                         canvas.Children.Add(image);
                         overlayImages[placement.Id] = image;
                     }
@@ -1693,16 +1716,10 @@ namespace PDFQFZ.WPF
                     dispH = doublePageLeftH;
                 }
             }
-            double x = pos.X - overlaySize.Width / 2.0;
-            double y = pos.Y - overlaySize.Height / 2.0;
-            double picw = Math.Max(0, dispW - overlaySize.Width);
-            double pich = Math.Max(0, dispH - overlaySize.Height);
-            if (x < 0) x = 0;
-            if (y < 0) y = 0;
-            if (x > picw) x = picw;
-            if (y > pich) y = pich;
-            float px = picw == 0 ? 0f : (float)(x / picw);
-            float py = pich == 0 ? 0f : (float)(y / pich);
+            // 中心比例语义：点击点即印章中心（章可超出页面，超出部分由页面边界自然裁剪）；
+            // 与按文字盖章的"章完整在页面内"语义通过 CenterRatio 标记区分
+            float px = (float)Math.Max(0.0, Math.Min(1.0, pos.X / dispW));
+            float py = (float)Math.Max(0.0, Math.Min(1.0, pos.Y / dispH));
 
             AddPreviewStamp(px, py, stampPath, stampType, targetPage);
             RefreshPreviewOverlays();
@@ -1768,7 +1785,7 @@ namespace PDFQFZ.WPF
                 {
                     stampPlacements.Add(sourcePath, page, px, py, stampPath, sizeMm,
                         currentOpacity, GetEffectiveRotation(currentRotation), whiteTolerance, useWhiteTransparency,
-                        useOriginalRotationCrop, activeSpecifiedBatchId);
+                        useOriginalRotationCrop, activeSpecifiedBatchId, centerRatio: true);
                 }
                 specifiedRangeFirstClickPending = false;
                 activeSpecifiedBatchId = 0;
@@ -1781,7 +1798,7 @@ namespace PDFQFZ.WPF
             int targetPage = pageNumber > 0 ? pageNumber : currentPageIndex + 1;
             stampPlacements.Add(sourcePath, targetPage, px, py, stampPath, sizeMm,
                 currentOpacity, GetEffectiveRotation(currentRotation), whiteTolerance, useWhiteTransparency,
-                useOriginalRotationCrop);
+                useOriginalRotationCrop, 0, centerRatio: true);
         }
 
         /// <summary>判断当前视图是否正显示指定范围盖章的最后一页（单页=当前页；双页=左页或右页）。</summary>
@@ -2130,9 +2147,9 @@ namespace PDFQFZ.WPF
             }
 
             // 参数校验
-            if (!TryParseInt(txtStampSize.Text, 1, 100, out int size))
+            if (!TryParseInt(txtStampSize.Text, 1, 500, out int size))
             {
-                MessageBox.Show("印章尺寸设置错误，请输入正确的尺寸（1-100）。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("印章尺寸设置错误，请输入正确的尺寸（1-500）。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             if (!TryParseInt(txtRotation.Text, -360, 360, out int rotation))
@@ -2352,7 +2369,7 @@ namespace PDFQFZ.WPF
         // ===================== 取值助手 =====================
         private int GetSizeValue()
         {
-            return TryParseInt(txtStampSize.Text, 1, 100, out int v) ? v : 40;
+            return TryParseInt(txtStampSize.Text, 1, 500, out int v) ? v : 40;
         }
 
         private int GetOpacityValue()

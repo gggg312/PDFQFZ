@@ -54,6 +54,11 @@ namespace PDFQFZ.WPF.Services
         public static int ContextRange = 10;            // 上下文范围（字，默认10）
         public static int ContextMatch = 0;             // 0=任一关键词（或），1=全部关键词（且）
 
+        // 左侧区域折叠状态（1=展开，0=收起；按文字盖章默认展开，印章参数/其他设置默认折叠，关闭时保存）
+        public static int FoldAutoText = 1;
+        public static int FoldSealParams = 0;
+        public static int FoldOther = 0;
+
         public static string IniPath
         {
             get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.ini"); }
@@ -119,6 +124,9 @@ namespace PDFQFZ.WPF.Services
                 ContextRange = ini.GetIniInt(Section, "contextRange", ContextRange);
                 ContextMatch = ini.GetIniInt(Section, "contextMatch", ContextMatch);
                 ContextFilterEnabled = ini.GetIniInt(Section, "contextFilterEnabled", 0) == 1;
+                FoldAutoText = ini.GetIniInt(Section, "foldAutoText", FoldAutoText);
+                FoldSealParams = ini.GetIniInt(Section, "foldSealParams", FoldSealParams);
+                FoldOther = ini.GetIniInt(Section, "foldOther", FoldOther);
             }
             catch
             {
@@ -151,6 +159,9 @@ namespace PDFQFZ.WPF.Services
                 ini.WriteIniInt(Section, "windowLeft", (int)left);
                 ini.WriteIniInt(Section, "windowTop", (int)top);
                 ini.WriteIniInt(Section, "leftPanelWidth", LeftPanelWidth);
+                ini.WriteIniInt(Section, "foldAutoText", FoldAutoText);
+                ini.WriteIniInt(Section, "foldSealParams", FoldSealParams);
+                ini.WriteIniInt(Section, "foldOther", FoldOther);
             }
             catch
             {
