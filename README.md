@@ -2,7 +2,8 @@
 
 > PDF 盖页面章与骑缝章工具（GG 优化版），基于 [flytkgl/PDFQFZ](https://github.com/flytkgl/PDFQFZ) `v1.33` 源码优化。
 
-<img width="1266" height="1252" alt="2 2 2界面" src="https://github.com/user-attachments/assets/501125e2-879c-4e76-8569-1a51510962f2" />
+<img width="1371" height="1283" alt="2 3" src="https://github.com/user-attachments/assets/e658a291-c27a-46c5-a53e-b674b43b6f42" />
+
 
 
 
