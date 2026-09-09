@@ -167,12 +167,21 @@ namespace PDFQFZ.WPF
                 comboRotationHandle.SelectedIndex = AppConfig.QbFlag;
                 txtOpacity.Text = AppConfig.Opacity.ToString();
                 chkRandomParams.IsChecked = true;
+                txtRandomOffsetMm.Text = "5";
+                UpdateRandomEnabled();
                 chkRemoveWhite.IsChecked = false;   // 默认关闭去除白色背景
                 txtTolerance.Text = "20";
                 UpdateToleranceEnabled();
                 comboSeamPosition.SelectedIndex = AppConfig.WzType;
                 txtSeamPosPct.Text = AppConfig.WzPercent.ToString();
                 txtMaxSplit.Text = AppConfig.MaxFgs.ToString();
+
+                // 输出清晰度：300/200/150/96/72 -> 索引 0/1/2/3/4，默认标准 150
+                comboOutputQuality.SelectedIndex = AppConfig.OutputQualityDpi >= 300 ? 0 :
+                    AppConfig.OutputQualityDpi >= 200 ? 1 :
+                    AppConfig.OutputQualityDpi >= 150 ? 2 :
+                    AppConfig.OutputQualityDpi >= 96 ? 3 : 4;
+                UpdateOutputQualityEnabled();
 
                 // 按文字盖章——上下文过滤（从配置恢复）
                 chkContextFilter.IsChecked = AppConfig.ContextFilterEnabled;
@@ -350,6 +359,14 @@ namespace PDFQFZ.WPF
                 if (_suppressMaxSplitTrack) return;
                 _maxSplitUserModified = true;
             };
+            // 输出清晰度变化：立即保存配置
+            comboOutputQuality.SelectionChanged += (s, e) =>
+            {
+                AppConfig.OutputQualityDpi = GetOutputQualityDpi();
+                AppConfig.SaveUiConfig();
+            };
+            // 输出效果切换：叠加模式栅格化档位不生效，置灰
+            comboOutput.SelectionChanged += (s, e) => UpdateOutputQualityEnabled();
             // 切换骑缝章类型时给出操作提示（单页=正向/奇数页，双页=反向/偶数页）
             comboSeam.SelectionChanged += (s, e) =>
             {
@@ -780,6 +797,19 @@ namespace PDFQFZ.WPF
             txtTolerance.IsEnabled = chkRemoveWhite.IsChecked == true;
         }
 
+        /// <summary>随机参数勾选变化：未勾选"随机"时，角度/位移输入框置灰不可填（显示的值不生效）。</summary>
+        private void ChkRandomParams_Changed(object sender, RoutedEventArgs e)
+        {
+            UpdateRandomEnabled();
+        }
+
+        private void UpdateRandomEnabled()
+        {
+            bool on = chkRandomParams.IsChecked == true;
+            txtRandomRange.IsEnabled = on;
+            txtRandomOffsetMm.IsEnabled = on;
+        }
+
         /// <summary>把当前界面的印章参数保存到当前印章名下。</summary>
         private void SaveCurrentStampParams()
         {
@@ -797,6 +827,7 @@ namespace PDFQFZ.WPF
                     Opacity = TryParseInt(txtOpacity.Text, 0, 100, out int o) ? o : 60,
                     RandomParams = chkRandomParams.IsChecked == true,
                     RandomRange = TryParseInt(txtRandomRange.Text, 0, 90, out int rr) ? rr : 5,
+                    RandomOffsetMm = TryParseInt(txtRandomOffsetMm.Text, 0, 500, out int ro) ? ro : 5,
                     RemoveWhite = chkRemoveWhite.IsChecked == true,
                     Tolerance = TryParseInt(txtTolerance.Text, 0, 50, out int t) ? t : 20,
                     MaxSplit = _maxSplitUserModified
@@ -848,6 +879,8 @@ namespace PDFQFZ.WPF
             txtOpacity.Text = p.Opacity.ToString();
             chkRandomParams.IsChecked = p.RandomParams;
             txtRandomRange.Text = p.RandomRange.ToString();
+            txtRandomOffsetMm.Text = p.RandomOffsetMm.ToString();
+            UpdateRandomEnabled();
             chkRemoveWhite.IsChecked = p.RemoveWhite;
             txtTolerance.Text = p.Tolerance.ToString();
             if (p.MaxSplit > 0)
@@ -1578,6 +1611,22 @@ namespace PDFQFZ.WPF
                         double overlayTop = placement.CenterRatio
                             ? dispH * placement.Y - overlaySize.Height / 2.0
                             : (dispH - overlaySize.Height) * placement.Y;
+                        // 随机位移：mm → 显示像素（页面物理宽 pdfWidthPoints(pt) ↔ 显示宽 dispW(px)）
+                        if (placement.OffsetXmm != 0f || placement.OffsetYmm != 0f)
+                        {
+                            double mmToPx = (72.0 / 25.4) * (dispW / pdfWidthPoints);
+                            overlayLeft += placement.OffsetXmm * mmToPx;
+                            overlayTop += placement.OffsetYmm * mmToPx;
+                        }
+                        // 出界自动移回页面内（按维度：章子比页面还大时保持中心出界裁剪，水印大章不受影响）
+                        if (overlaySize.Width <= dispW)
+                        {
+                            overlayLeft = Math.Min(Math.Max(overlayLeft, 0.0), dispW - overlaySize.Width);
+                        }
+                        if (overlaySize.Height <= dispH)
+                        {
+                            overlayTop = Math.Min(Math.Max(overlayTop, 0.0), dispH - overlaySize.Height);
+                        }
                         System.Windows.Controls.Canvas.SetLeft(image, overlayLeft);
                         System.Windows.Controls.Canvas.SetTop(image, overlayTop);
                         canvas.Children.Add(image);
@@ -1814,6 +1863,33 @@ namespace PDFQFZ.WPF
 
         private static readonly Random StampRandomGenerator = new Random();
 
+        /// <summary>读取随机位移距离（mm）：未勾选"随机"或非法值返回 0。</summary>
+        private float GetRandomOffsetMmValue()
+        {
+            if (chkRandomParams.IsChecked != true) return 0f;
+            float.TryParse(txtRandomOffsetMm.Text, out float v);
+            if (float.IsNaN(v) || float.IsInfinity(v)) return 0f;
+            if (v < 0f) v = 0f;
+            if (v > 500f) v = 500f;
+            return v;
+        }
+
+        /// <summary>生成随机位移向量（mm）：方向任意（0~360°）、距离 0~maxMm 均匀随机。
+        /// 未勾选"随机"或 maxMm&lt;=0 时返回零位移。随机值在放置时生成并固定，预览=输出。</summary>
+        private void GetRandomOffset(float maxMm, out float dxMm, out float dyMm)
+        {
+            dxMm = 0f;
+            dyMm = 0f;
+            if (chkRandomParams.IsChecked != true || maxMm <= 0f) return;
+            lock (StampRandomGenerator)
+            {
+                double angle = StampRandomGenerator.NextDouble() * 2.0 * Math.PI;
+                double dist = StampRandomGenerator.NextDouble() * maxMm;
+                dxMm = (float)(dist * Math.Cos(angle));
+                dyMm = (float)(dist * Math.Sin(angle));
+            }
+        }
+
         /// <summary>计算含随机旋转的最终角度：勾选盖章随机旋转时，在基础角度上叠加 ±range° 的随机值。</summary>
         private int GetEffectiveRotation(int baseRotation)
         {
@@ -1845,12 +1921,16 @@ namespace PDFQFZ.WPF
             if (stampType == SpecifiedPageStampType && specifiedRangeFirstClickPending &&
                 specifiedPageRange != null && IsAtSpecifiedEndPage())
             {
+                float maxOffsetMm = GetRandomOffsetMmValue();
                 activeSpecifiedBatchId = stampPlacements.CreateBatchId();
                 for (int page = specifiedPageRange.StartPage; page <= specifiedPageRange.EndPage; page++)
                 {
+                    // 每个页面在放置时各自随机一次位移（任意方向 0~maxOffsetMm），随机值固定进该页印章
+                    GetRandomOffset(maxOffsetMm, out float dxMm, out float dyMm);
                     stampPlacements.Add(sourcePath, page, px, py, stampPath, sizeMm,
                         currentOpacity, GetEffectiveRotation(currentRotation), whiteTolerance, useWhiteTransparency,
-                        useOriginalRotationCrop, activeSpecifiedBatchId, centerRatio: true);
+                        useOriginalRotationCrop, activeSpecifiedBatchId, centerRatio: true,
+                        offsetXmm: dxMm, offsetYmm: dyMm);
                 }
                 specifiedRangeFirstClickPending = false;
                 activeSpecifiedBatchId = 0;
@@ -1860,10 +1940,12 @@ namespace PDFQFZ.WPF
                 return;
             }
 
+            GetRandomOffset(GetRandomOffsetMmValue(), out float mdxMm, out float mdyMm);
             int targetPage = pageNumber > 0 ? pageNumber : currentPageIndex + 1;
             stampPlacements.Add(sourcePath, targetPage, px, py, stampPath, sizeMm,
                 currentOpacity, GetEffectiveRotation(currentRotation), whiteTolerance, useWhiteTransparency,
-                useOriginalRotationCrop, 0, centerRatio: true);
+                useOriginalRotationCrop, 0, centerRatio: true,
+                offsetXmm: mdxMm, offsetYmm: mdyMm);
         }
 
         /// <summary>判断当前视图是否正显示指定范围盖章的最后一页（单页=当前页；双页=左页或右页）。</summary>
@@ -1998,6 +2080,7 @@ namespace PDFQFZ.WPF
 
                 int addedCount = 0;
                 var addedPages = new List<int>();
+                float maxOffsetMm = GetRandomOffsetMmValue();
                 foreach (PdfTextMatch match in matches)
                 {
                     AutoStampPositionResult pos = AutoStampPositionCalculator.Calculate(
@@ -2013,9 +2096,12 @@ namespace PDFQFZ.WPF
                         if (alreadyPlaced) continue;
                     }
 
+                    // 每个匹配在放置时各自随机一次位移（任意方向 0~maxOffsetMm），随机值固定进该印章
+                    GetRandomOffset(maxOffsetMm, out float dxMm, out float dyMm);
                     stampPlacements.Add(sourcePath, match.PageIndex + 1, pos.Px, pos.Py, stampPath, sizeMm,
                         currentOpacity, GetEffectiveRotation(currentRotation), whiteTolerance, useWhiteTransparency,
-                        useOriginalRotationCrop, batchId);
+                        useOriginalRotationCrop, batchId,
+                        offsetXmm: dxMm, offsetYmm: dyMm);
                     addedCount++;
                     addedPages.Add(match.PageIndex + 1);
                 }
@@ -2311,6 +2397,7 @@ namespace PDFQFZ.WPF
                 using (cert)
                 {
                     int djType = comboOutput.SelectedIndex == 0 ? 1 : 0; // 合并=1 / 叠加=0（UI 线程缓存）
+                    _outputQualityDpi = GetOutputQualityDpi(); // 输出清晰度同法缓存，避免工作线程访问控件
                     bool dirMode = currentSourceIsDirectory;
                     await Task.Run(() =>
                         RunStampCore(options, seamImage, xzbl, src, outDir, djType, dirMode));
@@ -2337,6 +2424,29 @@ namespace PDFQFZ.WPF
         }
 
         /// <summary>后台批量盖章（目录模式遍历所有 PDF；文件模式逐个处理）。</summary>
+        /// <summary>合并模式输出 DPI（UI 线程缓存，工作线程只读字段，避免跨线程访问控件）。</summary>
+        private int _outputQualityDpi = 150;
+
+        /// <summary>输出清晰度下拉 -> 栅格化 DPI（0极高300/1高200/2标准150/3低96/4极低72）。</summary>
+        private int GetOutputQualityDpi()
+        {
+            switch (comboOutputQuality.SelectedIndex)
+            {
+                case 0: return 300;
+                case 1: return 200;
+                case 3: return 96;
+                case 4: return 72;
+                default: return 150;
+            }
+        }
+
+        /// <summary>叠加模式（index=1）下输出清晰度不生效，置灰不可选。</summary>
+        private void UpdateOutputQualityEnabled()
+        {
+            if (comboOutputQuality == null) return;
+            comboOutputQuality.IsEnabled = comboOutput.SelectedIndex == 0;
+        }
+
         private bool RunStampCore(StampOptions options, Bitmap seamImage, float xzbl,
             string src, string outDir, int djType, bool dirMode)
         {
@@ -2366,7 +2476,8 @@ namespace PDFQFZ.WPF
                             active => { if (active) StartSavingIndicator(); });
                         if (success && djType == 1)
                         {
-                            StampEngine.PDFToiPDF(output, options.QmType, options.Cert);
+                            StampEngine.PDFToiPDF(output, options.QmType, options.Cert,
+                                _outputQualityDpi);
                         }
                         if (success)
                         {
@@ -2402,7 +2513,8 @@ namespace PDFQFZ.WPF
                         {
                             if (djType == 1)
                             {
-                                StampEngine.PDFToiPDF(output, options.QmType, options.Cert);
+                                StampEngine.PDFToiPDF(output, options.QmType, options.Cert,
+                                    _outputQualityDpi);
                             }
                             if (!string.IsNullOrEmpty(options.PdfPassword))
                             {

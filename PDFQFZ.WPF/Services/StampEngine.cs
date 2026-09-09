@@ -327,7 +327,8 @@ namespace PDFQFZ.WPF.Services
                                 float placementScale = 100f * placement.SizeMm * 72f /
                                     (25.4f * placementBitmap.Width);
                                 placementImage.ScalePercent(placementScale);
-                                placementImage.RotationDegrees = placement.Rotation;
+                                // 旋转已由 CreatePlacementBitmap 按放置时固定的随机角度完成（预览与输出共用同一位图），
+                                // 不再重复设置 RotationDegrees，避免输出出现双重旋转（预览 1×、输出 2×）导致效果不一致。
 
                                 float placementWidth = placementImage.Width * placementScale / 100f;
                                 float placementHeight = placementImage.Height * placementScale / 100f;
@@ -343,6 +344,26 @@ namespace PDFQFZ.WPF.Services
                                     placement.CenterRatio,
                                     out placementX,
                                     out placementY);
+                                // 随机位移（mm→PDF点）：放置时已固定随机值，预览与输出一致。
+                                // iText 坐标系 y 向上为正，预览坐标系 y 向下为正，故 Y 方向取反。
+                                placementX += placement.OffsetXmm * 72f / 25.4f;
+                                placementY -= placement.OffsetYmm * 72f / 25.4f;
+                                // 出界自动移回页面内（按维度：章子比页面还大时保持中心出界裁剪，水印大章不受影响）。
+                                // 页面旋转 90/270 时 iText 坐标系同步旋转，可用长度相应交换。
+                                if (pageRotation == 90 || pageRotation == 270)
+                                {
+                                    if (placementWidth <= pageSize.Height)
+                                        placementX = Math.Min(Math.Max(placementX, 0f), pageSize.Height - placementWidth);
+                                    if (placementHeight <= pageSize.Width)
+                                        placementY = Math.Min(Math.Max(placementY, 0f), pageSize.Width - placementHeight);
+                                }
+                                else
+                                {
+                                    if (placementWidth <= pageSize.Width)
+                                        placementX = Math.Min(Math.Max(placementX, 0f), pageSize.Width - placementWidth);
+                                    if (placementHeight <= pageSize.Height)
+                                        placementY = Math.Min(Math.Max(placementY, 0f), pageSize.Height - placementHeight);
+                                }
                                 placementImage.SetAbsolutePosition(placementX, placementY);
 
                                 bool useForDigitalSignature = signaturePlacement != null &&
@@ -655,10 +676,12 @@ namespace PDFQFZ.WPF.Services
             }
         }
 
-        /// <summary>PDF 转图片后重新生成 PDF（"合并"输出模式：盖章不可编辑）。</summary>
-        public static void PDFToiPDF(string pdfPath, int qmType, X509Certificate2 cert)
+        /// <summary>PDF 转图片后重新生成 PDF（"合并"输出模式：盖章不可编辑）。
+        /// dpi 由输出清晰度档位决定（极高300/高200/标准150/低96/极低72），默认标准 150。</summary>
+        public static void PDFToiPDF(string pdfPath, int qmType, X509Certificate2 cert, int dpi = 150)
         {
-            int dpi = 300;
+            if (dpi < 72) dpi = 72;
+            if (dpi > 600) dpi = 600;
             float bl = 72f / dpi;
             Bitmap[] bitmaps = null;
             string renderPath = pdfPath;

@@ -31,6 +31,7 @@ namespace PDFQFZ.WPF.Services
         public static int Opacity = 100;      // 不透明度
         public static int WzPercent = 50;     // 骑缝章位置%
         public static int MaxFgs = 500;       // 最大分割数（默认500，满足水印/大面积骑缝章场景）
+        public static int OutputQualityDpi = 150; // 合并模式输出清晰度（300/200/150/96/72，默认标准150）
         public static int YzIndex = -1;       // 印章索引（历史兼容，WPF 以路径为准）
         public static string SignText = "";   // 签名文本/证书名
         public static string Password = "";   // 签名密码
@@ -104,6 +105,7 @@ namespace PDFQFZ.WPF.Services
                 Opacity = ini.GetIniInt(Section, "opacity", Opacity);
                 WzPercent = ini.GetIniInt(Section, "wz", WzPercent);
                 MaxFgs = ini.GetIniInt(Section, "maxfgs", MaxFgs);
+                OutputQualityDpi = ini.GetIniInt(Section, "outputQualityDpi", OutputQualityDpi);
                 YzIndex = ini.GetIniInt(Section, "yzIndex", YzIndex);
                 SignText = Content(ini, "signText", SignText);
                 Password = Content(ini, "signPassword", Password);
@@ -186,6 +188,7 @@ namespace PDFQFZ.WPF.Services
                 ini.WriteIniInt(Section, "opacity", Opacity);
                 ini.WriteIniInt(Section, "wz", WzPercent);
                 ini.WriteIniInt(Section, "maxfgs", MaxFgs);
+                ini.WriteIniInt(Section, "outputQualityDpi", OutputQualityDpi);
                 ini.WriteIniInt(Section, "yzIndex", YzIndex);
                 ini.WriteIniString(Section, "fixStr", FixStr);
                 ini.WriteIniString(Section, "fixStr2", FixStr2);
@@ -413,6 +416,7 @@ namespace PDFQFZ.WPF.Services
             public int Opacity = 60;         // 不透明度 %
             public bool RandomParams = false;// 盖章随机旋转
             public int RandomRange = 5;       // 盖章随机旋转角度范围（±N°）
+            public int RandomOffsetMm = 5;    // 盖章随机位移距离（任意方向 0~N mm）
             public bool RemoveWhite = false; // 去除白色背景
             public int Tolerance = 20;       // 容差
             public int MaxSplit = 500;       // 骑缝章最大分割数（随印章记忆，默认500）
@@ -441,6 +445,7 @@ namespace PDFQFZ.WPF.Services
                 p.Opacity = ini.GetIniInt(sec, "opacity", p.Opacity);
                 p.RandomParams = ini.GetIniInt(sec, "randomParams", 0) == 1;
                 p.RandomRange = ini.GetIniInt(sec, "randomRange", p.RandomRange);
+                p.RandomOffsetMm = ini.GetIniInt(sec, "randomOffsetMm", p.RandomOffsetMm);
                 p.RemoveWhite = ini.GetIniInt(sec, "removeWhite", 0) == 1;
                 p.Tolerance = ini.GetIniInt(sec, "tolerance", p.Tolerance);
                 p.MaxSplit = ini.GetIniInt(sec, "maxSplit", p.MaxSplit);
@@ -469,6 +474,7 @@ namespace PDFQFZ.WPF.Services
                 ini.WriteIniInt(sec, "opacity", p.Opacity);
                 ini.WriteIniInt(sec, "randomParams", p.RandomParams ? 1 : 0);
                 ini.WriteIniInt(sec, "randomRange", p.RandomRange);
+                ini.WriteIniInt(sec, "randomOffsetMm", p.RandomOffsetMm);
                 ini.WriteIniInt(sec, "removeWhite", p.RemoveWhite ? 1 : 0);
                 ini.WriteIniInt(sec, "tolerance", p.Tolerance);
                 if (p.MaxSplit > 0) ini.WriteIniInt(sec, "maxSplit", p.MaxSplit);

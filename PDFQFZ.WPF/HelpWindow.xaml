@@ -23,7 +23,7 @@
                 <!-- 一、安装与配置 -->
                 <TextBlock Text="一、安装与配置" Style="{StaticResource HelpSectionTitle}" />
                 <TextBlock Style="{StaticResource HelpBody}" Text="本软件为单文件免安装程序，下载后直接运行即可。" />
-                <TextBlock Style="{StaticResource HelpBody}" Text="首次运行后，会在 EXE 同目录生成配置文件 config.ini（保存印章列表、参数设置、历史记录等）。" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="首次运行后，会在 EXE 同目录生成配置文件 config.ini（保存印章列表、参数设置、历史记录等）和引擎文件 pdfium.dll（约 7MB，属正常现象，请勿删除；若被删除，下次启动会自动重新生成）。" />
                 <TextBlock Style="{StaticResource HelpBody}" Text="建议将 EXE 单独放在一个文件夹中，再发送快捷方式到桌面使用，以免误删或误改配置文件。" />
 
                 <!-- 二、快速开始 -->
@@ -82,13 +82,14 @@
                 <TextBlock Style="{StaticResource HelpBody}" Text="· 尺寸：印章大小，单位 mm。" Margin="20,0,0,4" />
                 <TextBlock Style="{StaticResource HelpBody}" Text="· 旋转：印章旋转角度，单位度。" Margin="20,0,0,4" />
                 <TextBlock Style="{StaticResource HelpBody}" Text="· 不透明度：印章透明度，百分比。" Margin="20,0,0,4" />
-                <TextBlock Style="{StaticResource HelpBody}" Text="· 盖章随机旋转：勾选后每次盖章随机旋转 ±N 度，模拟手工盖章的自然角度。" Margin="20,0,0,4" />
-                <TextBlock Style="{StaticResource HelpBody}" Text="· 去除白色背景：勾选后自动去除印章图片的白色背景，容差可调；未勾选时相关参数置灰不可用。" Margin="20,0,0,4" />
-                <TextBlock Style="{StaticResource HelpBody}" Text="· 骑缝章设置：骑缝章位置（上 / 下 / 左 / 右）、位置百分比、最大分割数，盖章时自动将印章拆分到各页边缘。" Margin="20,0,0,4" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 随机：勾选“随机”功能，可根据用户设置的范围，随机旋转与随机位移，模拟手工盖章效果。" Margin="20,0,0,4" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 去除图章白色背景：勾选后自动去除印章图片的白色背景，容差可调；未勾选时相关参数置灰不可用。" Margin="20,0,0,4" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="· 骑缝章设置：骑缝位置（上 / 下 / 左 / 右）、位置百分比、分割数，盖章时自动将印章拆分到各页边缘。" Margin="20,0,0,4" />
 
                 <!-- 六、预览操作 -->
                 <TextBlock Text="六、预览操作" Style="{StaticResource HelpSectionTitle}" />
                 <TextBlock Style="{StaticResource HelpBody}" Text="单页视图：鼠标滚轮翻页，Ctrl + 滚轮缩放页面。" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="双页视图：两页并排预览，固定 100% 比例，支持鼠标滚轮翻页与盖章。" />
                 <TextBlock Style="{StaticResource HelpBody}" Text="放大视图：按住鼠标左键拖动页面，滚轮缩放。" />
                 <TextBlock Style="{StaticResource HelpBody}" Text="页码跳转：在页码输入框输入页码后回车，直接跳转到指定页。" />
                 <TextBlock Style="{StaticResource HelpBody}" Text="右键删除：右键单击已有印章可删除（批量印章会弹窗确认删除范围）。" />
@@ -105,6 +106,7 @@
                 <!-- 八、输出文件与配置 -->
                 <TextBlock Text="八、输出文件与配置" Style="{StaticResource HelpSectionTitle}" />
                 <TextBlock Style="{StaticResource HelpBody}" Text="输出文件沿用现有命名规则，并根据同一源文件已存在的输出文件自动使用 V1、V2、V3 等版本号，不覆盖旧结果，例如 1.pdf 输出为 1_已盖章V1.pdf。" />
+                <TextBlock Style="{StaticResource HelpBody}" Text="输出清晰度（DPI）：生成文件时可在“盖章并生成文件”旁选择输出 DPI（极高 300 / 高 200 / 标准 150 / 低 96 / 极低 72，默认标准），DPI 越大文件越清晰、占用空间越大；仅对合并（栅格化）模式生效，叠加模式不受影响。" />
                 <TextBlock Style="{StaticResource HelpBody}" Text="首次启动默认：文件模式、不加骑缝章、手动点击盖章、合并模式。" />
 
                 <!-- 九、常见问题 -->

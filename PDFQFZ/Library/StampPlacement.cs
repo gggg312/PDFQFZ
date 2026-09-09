@@ -20,7 +20,9 @@ namespace PDFQFZ.Library
             bool useWhiteTransparency,
             bool useOriginalRotationCrop,
             int batchId,
-            bool centerRatio = false)
+            bool centerRatio = false,
+            float offsetXmm = 0f,
+            float offsetYmm = 0f)
         {
             Id = id;
             DocumentPath = documentPath ?? string.Empty;
@@ -36,6 +38,8 @@ namespace PDFQFZ.Library
             UseOriginalRotationCrop = useOriginalRotationCrop;
             BatchId = batchId;
             CenterRatio = centerRatio;
+            OffsetXmm = offsetXmm;
+            OffsetYmm = offsetYmm;
         }
 
         public int Id { get; }
@@ -53,6 +57,9 @@ namespace PDFQFZ.Library
         public int BatchId { get; }
         /// <summary>坐标语义：true=印章中心在页面内的比例（手动/范围页盖章，可超出页面被边界裁剪）；false=印章左上角在"页面减章宽"区间内的比例（按文字盖章，完整在页面内）。</summary>
         public bool CenterRatio { get; }
+        /// <summary>随机位移（mm，可正负）：放置时随机生成并固定，预览与输出使用同一值。</summary>
+        public float OffsetXmm { get; }
+        public float OffsetYmm { get; }
     }
 
     internal sealed class StampPlacementCollection
@@ -75,7 +82,9 @@ namespace PDFQFZ.Library
             bool useWhiteTransparency,
             bool useOriginalRotationCrop,
             int batchId = 0,
-            bool centerRatio = false)
+            bool centerRatio = false,
+            float offsetXmm = 0f,
+            float offsetYmm = 0f)
         {
             StampPlacement placement = new StampPlacement(
                 nextId++,
@@ -91,7 +100,9 @@ namespace PDFQFZ.Library
                 useWhiteTransparency,
                 useOriginalRotationCrop,
                 batchId,
-                centerRatio);
+                centerRatio,
+                offsetXmm,
+                offsetYmm);
             placements.Add(placement);
             return placement;
         }
