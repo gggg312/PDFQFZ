@@ -208,7 +208,10 @@ namespace PDFQFZ.WPF.Services
                 if (opt.QfzType != 1 && qfzPages > 1)
                 {
                     int max = opt.MaxSplit;
-                    int ss = qfzPages / max + 1;
+                    if (max < 1) max = 1;
+                    // 段数向上取整：max 大于等于骑缝章页数时一整段盖完；
+                    // 旧公式 qfzPages/max+1 在整除（如 29 页、分割数 29）时会多拆一段，导致效果减半。
+                    int ss = (qfzPages + max - 1) / max;
                     int sy = qfzPages - ss * max / 2;
                     int sys = sy / ss;
                     int syy = sy % ss;
