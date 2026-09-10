@@ -21,7 +21,16 @@ namespace PDFQFZ.Library
                 : Enumerable.Empty<string>();
 
             string fileName = GetNextFileName(sourceFilePath, marker, markerBeforeSource, existingFileNames);
-            return Path.Combine(destinationDirectory, fileName);
+            string outputPath = Path.Combine(destinationDirectory, fileName);
+
+            // 防覆盖：若计算出的输出路径与源文件相同（同名同目录），把源文件名视为已存在，版本+1 避开
+            if (string.Equals(Path.GetFullPath(outputPath), Path.GetFullPath(sourceFilePath), StringComparison.OrdinalIgnoreCase))
+            {
+                fileName = GetNextFileName(sourceFilePath, marker, markerBeforeSource,
+                    existingFileNames.Concat(new[] { fileName }));
+                outputPath = Path.Combine(destinationDirectory, fileName);
+            }
+            return outputPath;
         }
 
         public static string GetNextFileName(
@@ -36,6 +45,27 @@ namespace PDFQFZ.Library
             if (string.IsNullOrEmpty(extension))
             {
                 extension = ".pdf";
+            }
+
+            // 源文件名本身已带标记（如 xxx_已盖章V1.pdf 再次作为源文件盖章）时，先剥离标记段，
+            // 避免重复拼接出 xxx_已盖章V1_已盖章V1.pdf
+            if (markerBeforeSource)
+            {
+                string strippedPrefix = Regex.Replace(sourceName,
+                    "^" + Regex.Escape(marker) + "V[1-9][0-9]*_", "", RegexOptions.IgnoreCase);
+                if (strippedPrefix != sourceName)
+                {
+                    sourceName = strippedPrefix;
+                }
+            }
+            else
+            {
+                string strippedSuffix = Regex.Replace(sourceName,
+                    "_" + Regex.Escape(marker) + "V[1-9][0-9]*$", "", RegexOptions.IgnoreCase);
+                if (strippedSuffix != sourceName)
+                {
+                    sourceName = strippedSuffix;
+                }
             }
 
             string pattern = markerBeforeSource

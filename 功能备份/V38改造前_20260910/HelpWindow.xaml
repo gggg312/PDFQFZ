@@ -4,7 +4,7 @@
         Title="使用说明"
         Width="720" Height="760" MinWidth="600" MinHeight="500"
         WindowStartupLocation="CenterOwner"
-        Background="{StaticResource Color.WindowBg}" FontFamily="{StaticResource Font.App}" FontSize="12.5">
+        Background="#F5F5F5" FontFamily="Microsoft YaHei UI" FontSize="13">
     <Grid Margin="0">
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
@@ -128,7 +128,7 @@
 
         <!-- 底部关闭按钮 -->
         <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,28,16">
-            <Button Content="关闭" Width="90" Height="30" Click="OnCloseClick" IsDefault="True" IsCancel="True" />
+            <Button Content="关闭" Width="90" Height="32" Click="OnCloseClick" IsDefault="True" IsCancel="True" />
         </StackPanel>
     </Grid>
 </Window>

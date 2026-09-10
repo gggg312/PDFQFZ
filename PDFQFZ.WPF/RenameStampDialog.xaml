@@ -1,0 +1,16 @@
+<Window x:Class="PDFQFZ.WPF.RenameStampDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="重命名印章"
+        Width="400" SizeToContent="Height" WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize" ShowInTaskbar="False"
+        Background="{StaticResource Color.WindowBg}" FontFamily="{StaticResource Font.App}" FontSize="12.5">
+    <StackPanel Margin="16">
+        <TextBlock x:Name="txtMsg" TextWrapping="Wrap" MaxWidth="360" Margin="0,0,0,12" />
+        <TextBox x:Name="txtName" MaxLength="30" Margin="0,0,0,12" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="btnOk" Content="确定" Width="72" Height="30" Margin="0,0,8,0" Click="OnOkClick" IsDefault="True" />
+            <Button x:Name="btnCancel" Content="取消" Width="72" Height="30" Click="OnCancelClick" IsCancel="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

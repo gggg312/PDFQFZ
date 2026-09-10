@@ -1,0 +1,134 @@
+<Window x:Class="PDFQFZ.WPF.TextureSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="盖章渲染参数"
+        Width="500" MinWidth="480" MinHeight="360"
+        SizeToContent="Height" ResizeMode="CanResize"
+        WindowStartupLocation="Manual" ShowInTaskbar="False"
+        Background="{StaticResource Color.WindowBg}" FontFamily="{StaticResource Font.App}" FontSize="12">
+    <StackPanel Margin="16">
+        <!-- 顶部：左侧 4 个渲染方案（点击弹保存/加载菜单），右侧恢复默认（主界面按钮样式：白底蓝边 + 悬浮效果） -->
+        <DockPanel Margin="0,0,0,8">
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" HorizontalAlignment="Left">
+                <Button x:Name="btnPreset1" Content="方案1" Style="{StaticResource Button.Secondary}"
+                        Width="72" Height="28" Margin="0,0,6,0" Tag="1" Click="BtnPreset_Click" />
+                <Button x:Name="btnPreset2" Content="方案2" Style="{StaticResource Button.Secondary}"
+                        Width="72" Height="28" Margin="0,0,6,0" Tag="2" Click="BtnPreset_Click" />
+                <Button x:Name="btnPreset3" Content="方案3" Style="{StaticResource Button.Secondary}"
+                        Width="72" Height="28" Margin="0,0,6,0" Tag="3" Click="BtnPreset_Click" />
+                <Button x:Name="btnPreset4" Content="方案4" Style="{StaticResource Button.Secondary}"
+                        Width="72" Height="28" Margin="0,0,6,0" Tag="4" Click="BtnPreset_Click" />
+            </StackPanel>
+            <Button x:Name="btnReset" Content="恢复默认" Style="{StaticResource Button.Secondary}"
+                    Width="80" Height="28" DockPanel.Dock="Right"
+                    HorizontalAlignment="Right" Click="OnResetClick" />
+        </DockPanel>
+
+        <!-- 参数两列：
+             行1：明暗强度 | 渐变
+             行2：局部露白 | 径向压印
+             行3：内部斑点 | 斑块大小（同类同排；内部斑点=0 时斑块大小联动置 0 并禁用）
+             行4：整体色偏 | （空） -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 左列：明暗 / 露白 / 内部斑点 / 色偏 -->
+            <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                <StackPanel>
+                    <TextBlock Text="印泥浓淡不均" Style="{StaticResource SectionTitle}" />
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <Slider x:Name="sldBrightness" Minimum="0" Maximum="100" Width="140"
+                                VerticalAlignment="Center" ValueChanged="OnValueChanged"
+                                PreviewMouseLeftButtonDown="Slider_TrackJump" />
+                        <TextBox x:Name="txtBrightness" Width="46" TextAlignment="Center"
+                                 VerticalContentAlignment="Center" Margin="8,0,0,0"
+                                 FontSize="13" Padding="0"
+                                 KeyDown="OnValueBoxKeyDown" LostFocus="OnValueBoxLostFocus" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Margin="0,14,0,0">
+                    <TextBlock Text="局部露白" Style="{StaticResource SectionTitle}" />
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <Slider x:Name="sldWhite" Minimum="0" Maximum="100" Width="140"
+                                VerticalAlignment="Center" ValueChanged="OnValueChanged"
+                                PreviewMouseLeftButtonDown="Slider_TrackJump" />
+                        <TextBox x:Name="txtWhite" Width="46" TextAlignment="Center"
+                                 VerticalContentAlignment="Center" Margin="8,0,0,0"
+                                 FontSize="13" Padding="0"
+                                 KeyDown="OnValueBoxKeyDown" LostFocus="OnValueBoxLostFocus" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Margin="0,14,0,0">
+                    <TextBlock Text="内部斑点" Style="{StaticResource SectionTitle}" />
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <Slider x:Name="sldSpot" Minimum="0" Maximum="100" Width="140"
+                                VerticalAlignment="Center" ValueChanged="OnValueChanged"
+                                PreviewMouseLeftButtonDown="Slider_TrackJump" />
+                        <TextBox x:Name="txtSpot" Width="46" TextAlignment="Center"
+                                 VerticalContentAlignment="Center" Margin="8,0,0,0"
+                                 FontSize="13" Padding="0"
+                                 KeyDown="OnValueBoxKeyDown" LostFocus="OnValueBoxLostFocus" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Margin="0,14,0,0">
+                    <TextBlock Text="色调" Style="{StaticResource SectionTitle}" />
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <Slider x:Name="sldCast" Minimum="-100" Maximum="100" Width="140"
+                                VerticalAlignment="Center" ValueChanged="OnValueChanged"
+                                PreviewMouseLeftButtonDown="Slider_TrackJump" />
+                        <TextBox x:Name="txtCast" Width="46" TextAlignment="Center"
+                                 VerticalContentAlignment="Center" Margin="8,0,0,0"
+                                 FontSize="13" Padding="0"
+                                 KeyDown="OnValueBoxKeyDown" LostFocus="OnValueBoxLostFocus" />
+                    </StackPanel>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- 右列：渐变 / 径向 / 斑块大小 -->
+            <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                <StackPanel>
+                    <TextBlock Text="渐变" Style="{StaticResource SectionTitle}" />
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <Slider x:Name="sldGradient" Minimum="0" Maximum="100" Width="140"
+                                VerticalAlignment="Center" ValueChanged="OnValueChanged"
+                                PreviewMouseLeftButtonDown="Slider_TrackJump" />
+                        <TextBox x:Name="txtGradient" Width="46" TextAlignment="Center"
+                                 VerticalContentAlignment="Center" Margin="8,0,0,0"
+                                 FontSize="13" Padding="0"
+                                 KeyDown="OnValueBoxKeyDown" LostFocus="OnValueBoxLostFocus" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Margin="0,14,0,0">
+                    <TextBlock Text="径向压印" Style="{StaticResource SectionTitle}" />
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <Slider x:Name="sldRadial" Minimum="0" Maximum="100" Width="140"
+                                VerticalAlignment="Center" ValueChanged="OnValueChanged"
+                                PreviewMouseLeftButtonDown="Slider_TrackJump" />
+                        <TextBox x:Name="txtRadial" Width="46" TextAlignment="Center"
+                                 VerticalContentAlignment="Center" Margin="8,0,0,0"
+                                 FontSize="13" Padding="0"
+                                 KeyDown="OnValueBoxKeyDown" LostFocus="OnValueBoxLostFocus" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Margin="0,14,0,0">
+                    <TextBlock Text="斑点大小" Style="{StaticResource SectionTitle}" />
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <Slider x:Name="sldBlob" Minimum="0" Maximum="100" Width="140"
+                                VerticalAlignment="Center" ValueChanged="OnValueChanged"
+                                PreviewMouseLeftButtonDown="Slider_TrackJump" />
+                        <TextBox x:Name="txtBlob" Width="46" TextAlignment="Center"
+                                 VerticalContentAlignment="Center" Margin="8,0,0,0"
+                                 FontSize="13" Padding="0"
+                                 KeyDown="OnValueBoxKeyDown" LostFocus="OnValueBoxLostFocus" />
+                    </StackPanel>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <TextBlock Text="修改实时生效，可在预览区盖章调试参数，调整好参数直接关闭窗口即可"
+                   Foreground="{StaticResource Color.TextSecondary}" FontSize="11" TextWrapping="Wrap" Margin="0,14,0,0" />
+    </StackPanel>
+</Window>

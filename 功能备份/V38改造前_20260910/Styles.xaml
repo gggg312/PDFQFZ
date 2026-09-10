@@ -34,7 +34,7 @@
         <Setter Property="FontFamily" Value="{StaticResource Font.App}" />
         <Setter Property="FontSize" Value="12.5" />
         <Setter Property="Foreground" Value="{StaticResource Color.Text}" />
-        <Setter Property="Padding" Value="8,2" />
+        <Setter Property="Padding" Value="8,5" />
         <Setter Property="MinHeight" Value="30" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="BorderThickness" Value="1" />
@@ -68,7 +68,7 @@
         <Setter Property="FontFamily" Value="{StaticResource Font.App}" />
         <Setter Property="FontSize" Value="12.5" />
         <Setter Property="Foreground" Value="{StaticResource Color.Text}" />
-        <Setter Property="Padding" Value="8,2" />
+        <Setter Property="Padding" Value="8,5" />
         <Setter Property="MinHeight" Value="30" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Template">
@@ -152,8 +152,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="MenuItem">
                     <Border x:Name="bd" Background="Transparent" CornerRadius="4" Margin="2,1" Padding="8,5">
-                        <ContentPresenter ContentSource="Header" VerticalAlignment="Center"
-                                              TextElement.Foreground="{Binding Foreground, RelativeSource={RelativeSource TemplatedParent}}" />
+                        <ContentPresenter ContentSource="Header" VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsHighlighted" Value="True">
@@ -263,15 +262,12 @@
                                           Margin="{TemplateBinding Padding}" />
                     </Border>
                     <ControlTemplate.Triggers>
-                        <!-- 悬浮：浅蓝底 + 亮蓝边框（明显可感知） -->
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Color.PrimaryHover}" />
-                            <Setter TargetName="bd" Property="Background" Value="#F0F7FF" />
+                            <Setter TargetName="bd" Property="Background" Value="#FAFAFA" />
                         </Trigger>
-                        <!-- 按下：内容随内边距下移 1px 产生按压感 + 整体略变深 -->
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="bd" Property="Padding" Value="0,1,0,0" />
-                            <Setter TargetName="bd" Property="Opacity" Value="0.9" />
+                            <Setter TargetName="bd" Property="Opacity" Value="0.85" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="bd" Property="Opacity" Value="0.45" />
@@ -287,39 +283,6 @@
         <Setter Property="Foreground" Value="{StaticResource Color.Primary}" />
         <Setter Property="BorderBrush" Value="{StaticResource Color.Primary}" />
         <Setter Property="Background" Value="{StaticResource Color.CardBg}" />
-    </Style>
-
-    <!-- 方形入口按钮：不带圆角，与圆角操作按钮区分；
-         用于"勾选框 + 打开设置弹窗"的组合入口（如盖章渲染）：未勾选时整体置灰不可点，勾选后变亮可点 -->
-    <Style x:Key="Button.SecondarySquare" TargetType="Button" BasedOn="{StaticResource Button.Base}">
-        <Setter Property="Foreground" Value="{StaticResource Color.Primary}" />
-        <Setter Property="BorderBrush" Value="{StaticResource Color.Primary}" />
-        <Setter Property="Background" Value="{StaticResource Color.CardBg}" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="Button">
-                    <Border x:Name="bd" Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="0">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                          Margin="{TemplateBinding Padding}" />
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Color.PrimaryHover}" />
-                            <Setter TargetName="bd" Property="Background" Value="#F0F7FF" />
-                        </Trigger>
-                        <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="bd" Property="Padding" Value="0,1,0,0" />
-                            <Setter TargetName="bd" Property="Opacity" Value="0.9" />
-                        </Trigger>
-                        <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="bd" Property="Opacity" Value="0.45" />
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
     </Style>
 
     <!-- 视图切换开关：未选中与 Button.Secondary 同风格；选中时蓝边框加粗+浅蓝底+深蓝加粗文字（对齐原版 SetToolbarButtonSelected） -->
@@ -412,8 +375,7 @@
                             <Setter TargetName="bd" Property="Background" Value="{StaticResource Color.DangerHover}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="bd" Property="Padding" Value="0,1,0,0" />
-                            <Setter TargetName="bd" Property="Opacity" Value="0.9" />
+                            <Setter TargetName="bd" Property="Opacity" Value="0.85" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="bd" Property="Opacity" Value="0.45" />
@@ -425,45 +387,12 @@
     </Style>
 
     <!-- ===================== 勾选 ===================== -->
-    <!-- 方形勾选框规范：不带圆角（与圆角操作按钮区分）；未选中灰边、选中蓝底白勾、hover 亮蓝、禁用变淡 -->
     <Style TargetType="CheckBox">
         <Setter Property="FontFamily" Value="{StaticResource Font.App}" />
         <Setter Property="FontSize" Value="12.5" />
         <Setter Property="Foreground" Value="{StaticResource Color.Text}" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="CheckBox">
-                    <StackPanel Orientation="Horizontal">
-                        <Border x:Name="box" Width="16" Height="16" CornerRadius="0"
-                                Background="{StaticResource Color.CardBg}"
-                                BorderBrush="#C6CAD2" BorderThickness="1"
-                                VerticalAlignment="Center" SnapsToDevicePixels="True">
-                            <Path x:Name="tick" Data="M 3,8 L 6.5,11.5 L 13,4"
-                                  Stroke="White" StrokeThickness="2"
-                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                                  StrokeLineJoin="Round" Visibility="Collapsed"
-                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Center" />
-                    </StackPanel>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="box" Property="Background" Value="{StaticResource Color.Primary}" />
-                            <Setter TargetName="box" Property="BorderBrush" Value="{StaticResource Color.Primary}" />
-                            <Setter TargetName="tick" Property="Visibility" Value="Visible" />
-                        </Trigger>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="box" Property="BorderBrush" Value="{StaticResource Color.PrimaryHover}" />
-                        </Trigger>
-                        <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="box" Property="Opacity" Value="0.45" />
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
     </Style>
 
     <Style TargetType="RadioButton">
@@ -495,7 +424,7 @@
 
     <Style x:Key="SectionHint" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource Font.App}" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="11.5" />
         <Setter Property="Foreground" Value="{StaticResource Color.TextHint}" />
         <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
@@ -503,7 +432,7 @@
     <!-- 折叠箭头 -->
     <Style x:Key="FoldTip" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource Font.App}" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="11.5" />
         <Setter Property="Foreground" Value="{StaticResource Color.TextHint}" />
         <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
@@ -512,7 +441,7 @@
     <!-- 折叠按钮：轻按钮样式（浅色背景+圆角，hover背景变深） -->
     <Style x:Key="FoldButton" TargetType="Button">
         <Setter Property="FontFamily" Value="{StaticResource Font.App}" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="11.5" />
         <Setter Property="Foreground" Value="{StaticResource Color.TextSecondary}" />
         <Setter Property="Background" Value="#F0F0F0" />
         <Setter Property="BorderBrush" Value="#E0E0E0" />
@@ -547,7 +476,7 @@
     <!-- 操作提示区文字 -->
     <Style x:Key="LogText" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource Font.App}" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="12" />
         <Setter Property="Foreground" Value="{StaticResource Color.TextSecondary}" />
         <Setter Property="TextWrapping" Value="Wrap" />
         <Setter Property="LineHeight" Value="20" />
@@ -556,7 +485,7 @@
     <!-- ===================== 历史下拉：删除叉（Chrome 搜索历史样式） ===================== -->
     <Style x:Key="HistoryDeleteButton" TargetType="Button">
         <Setter Property="FontFamily" Value="{StaticResource Font.App}" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="11" />
         <Setter Property="Foreground" Value="#B0B3B8" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
@@ -641,44 +570,6 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
-    </Style>
-
-
-    <!-- 拖动条上下箭头（NumericSliderRow 用）：无边框轻按钮，悬浮浅蓝底，按住连续步进 -->
-    <!-- 拖动条上下箭头按钮组：标准 NumericUpDown 样式——浅灰底小按钮、全边框、蓝色箭头、悬浮/按下反馈 -->
-    <!-- 拖动条上下箭头按钮：GGStampWatermark 规范——灰箭头 + 白底(#FBFBFC) + 细边框(#DCDFE6)，18×13，上下间距 2 -->
-    <Style x:Key="SpinButton" TargetType="RepeatButton">
-        <Setter Property="Background" Value="#FBFBFC" />
-        <Setter Property="BorderBrush" Value="#DCDFE6" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="0" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="RepeatButton">
-                    <Border x:Name="bd" Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="2">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                          Margin="{TemplateBinding Padding}" />
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <!-- 悬浮反馈与按钮悬浮态一致：浅蓝底 #F0F7FF + 亮蓝边 Color.PrimaryHover；厚度保持 1 防内容跳动 -->
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Color.PrimaryHover}" />
-                            <Setter TargetName="bd" Property="Background" Value="#F0F7FF" />
-                        </Trigger>
-                        <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="#E8E9EB" />
-                        </Trigger>
-                        <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Opacity" Value="0.45" />
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
-        <Setter Property="Cursor" Value="Hand" />
-        <Setter Property="Focusable" Value="False" />
     </Style>
 
 </ResourceDictionary>

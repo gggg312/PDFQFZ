@@ -23,7 +23,7 @@
         </DataTemplate>
         <!-- 印章下拉项（单选）：显示名（不含后缀） + 删除叉；点击行=选中该章；右键弹重命名/删除菜单 -->
         <DataTemplate x:Key="StampPickerItemTemplate">
-            <Grid Background="Transparent" Tag="{Binding}">
+            <Grid Background="Transparent" Tag="{Binding}" MouseRightButtonUp="StampItem_RightClick">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -76,7 +76,7 @@
                                 </Grid.ColumnDefinitions>
                                 <Border Grid.Column="0" Background="{StaticResource Color.Primary}" CornerRadius="4"
                                         Width="20" Height="20" Margin="0,0,8,0">
-                                    <TextBlock Text="1" Foreground="White" FontWeight="Bold" FontSize="12.5"
+                                    <TextBlock Text="1" Foreground="White" FontWeight="Bold" FontSize="12"
                                                HorizontalAlignment="Stretch" TextAlignment="Center" VerticalAlignment="Center" />
                                 </Border>
                                 <TextBlock Grid.Column="1" Style="{StaticResource SectionTitle}" Text="源文件" />
@@ -92,7 +92,7 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="源PDF" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                <TextBox Grid.Column="1" x:Name="txtSourcePdf" AutomationProperties.AutomationId="txtSourcePdf" VerticalAlignment="Center" AllowDrop="True" Height="30" />
+                                <TextBox Grid.Column="1" x:Name="txtSourcePdf" AutomationProperties.AutomationId="txtSourcePdf" VerticalAlignment="Center" AllowDrop="True" />
                                 <Button Grid.Column="2" x:Name="btnSourcePdf" Style="{StaticResource Button.Secondary}"
                                         Content="选择" Margin="8,0,0,0" Width="64" />
                             </Grid>
@@ -104,7 +104,7 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="保存目录" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                <TextBox Grid.Column="1" x:Name="txtOutputDir" AutomationProperties.AutomationId="txtOutputDir" VerticalAlignment="Center" AllowDrop="True" Height="30" />
+                                <TextBox Grid.Column="1" x:Name="txtOutputDir" AutomationProperties.AutomationId="txtOutputDir" VerticalAlignment="Center" AllowDrop="True" />
                                 <Button Grid.Column="2" x:Name="btnOutputDir" Style="{StaticResource Button.Secondary}"
                                         Content="选择" Margin="8,0,0,0" Width="64" />
                             </Grid>
@@ -116,7 +116,7 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="印章文件" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                <ComboBox x:Name="comboStampMulti" Grid.Column="1" Height="30"
+                                <ComboBox x:Name="comboStampMulti" Grid.Column="1"
                                           IsEditable="True" IsReadOnly="True"
                                           ItemTemplate="{StaticResource StampPickerItemTemplate}"
                                           VerticalContentAlignment="Center"
@@ -140,7 +140,7 @@
                                 </Grid.ColumnDefinitions>
                                 <Border Grid.Column="0" Background="{StaticResource Color.Primary}" CornerRadius="4"
                                         Width="20" Height="20" Margin="0,0,8,0">
-                                    <TextBlock Text="2" Foreground="White" FontWeight="Bold" FontSize="12.5"
+                                    <TextBlock Text="2" Foreground="White" FontWeight="Bold" FontSize="12"
                                                HorizontalAlignment="Stretch" TextAlignment="Center" VerticalAlignment="Center" />
                                 </Border>
                                 <TextBlock Grid.Column="1" Style="{StaticResource SectionTitle}" Text="盖章方式" />
@@ -192,7 +192,7 @@
                     <!-- ===== 卡片3：按文字盖章 ===== -->
                     <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                         <StackPanel>
-                            <Grid Margin="0,0,0,10" x:Name="autoTextHeaderGrid">
+                            <Grid Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
@@ -201,7 +201,7 @@
                                 </Grid.ColumnDefinitions>
                                 <Border Grid.Column="0" Background="{StaticResource Color.Primary}" CornerRadius="4"
                                         Width="20" Height="20" Margin="0,0,8,0">
-                                    <TextBlock Text="3" Foreground="White" FontWeight="Bold" FontSize="12.5"
+                                    <TextBlock Text="3" Foreground="White" FontWeight="Bold" FontSize="12"
                                                HorizontalAlignment="Stretch" TextAlignment="Center" VerticalAlignment="Center" />
                                 </Border>
                                 <TextBlock Grid.Column="1" Style="{StaticResource SectionTitle}" Text="按文字盖章" />
@@ -230,11 +230,11 @@
                                 </Grid>
                                 <CheckBox x:Name="chkCenterOffset" Content="中心偏移" VerticalAlignment="Center" />
                                 <TextBlock Text="横" VerticalAlignment="Center" Margin="10,0,4,0" />
-                                <TextBox x:Name="txtCenterOffsetX" Text="0" Width="52" Height="30" TextAlignment="Center"
+                                <TextBox x:Name="txtCenterOffsetX" Text="0" Width="52" Height="26" TextAlignment="Center"
                                          VerticalContentAlignment="Center" Padding="2,3" IsEnabled="False" />
                                 <TextBlock Text="mm" VerticalAlignment="Center" Margin="4,0,0,0" Foreground="#666666" />
                                 <TextBlock Text="纵" VerticalAlignment="Center" Margin="10,0,4,0" />
-                                <TextBox x:Name="txtCenterOffsetY" Text="0" Width="52" Height="30" TextAlignment="Center"
+                                <TextBox x:Name="txtCenterOffsetY" Text="0" Width="52" Height="26" TextAlignment="Center"
                                          VerticalContentAlignment="Center" Padding="2,3" IsEnabled="False" />
                                 <TextBlock Text="mm" VerticalAlignment="Center" Margin="4,0,0,0" Foreground="#666666" />
                             </WrapPanel>
@@ -252,14 +252,14 @@
                                            Foreground="{StaticResource Color.TextHint}"
                                            VerticalAlignment="Center" Margin="8,0,0,0"
                                            IsHitTestVisible="False" />
-                                <TextBox x:Name="txtContextKeywords" Height="30"
+                                <TextBox x:Name="txtContextKeywords" Height="26"
                                          VerticalContentAlignment="Center" Padding="3,3"
                                          IsEnabled="False" />
                             </Grid>
                             <WrapPanel Orientation="Horizontal" Margin="0,6,0,0">
                                 <StackPanel Orientation="Horizontal" Margin="0,0,20,0">
                                     <TextBlock Text="上下文范围" VerticalAlignment="Center" Margin="0,0,5,0" />
-                                    <TextBox x:Name="txtContextRange" Text="10" Width="46" Height="30"
+                                    <TextBox x:Name="txtContextRange" Text="10" Width="46" Height="26"
                                              VerticalContentAlignment="Center" TextAlignment="Center"
                                              Padding="3,3" IsEnabled="False" />
                                     <TextBlock Text="字" VerticalAlignment="Center" Margin="4,0,0,0" Foreground="#666666" />
@@ -268,7 +268,7 @@
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="匹配" VerticalAlignment="Center" Margin="0,0,5,0" />
-                                    <ComboBox x:Name="comboContextMatch" Width="150" Height="30"
+                                    <ComboBox x:Name="comboContextMatch" Width="150" Height="26"
                                               VerticalAlignment="Center" IsEnabled="False">
                                         <ComboBoxItem Content="任一关键词（或）" IsSelected="True" />
                                         <ComboBoxItem Content="全部关键词（且）" />
@@ -289,7 +289,7 @@
                     <!-- ===== 卡片4：印章参数（折叠） ===== -->
                     <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                         <StackPanel>
-                            <Grid Margin="0,0,0,10" x:Name="sealParamsHeaderGrid">
+                            <Grid Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
@@ -298,7 +298,7 @@
                                 </Grid.ColumnDefinitions>
                                 <Border Grid.Column="0" Background="{StaticResource Color.Primary}" CornerRadius="4"
                                         Width="20" Height="20" Margin="0,0,8,0">
-                                    <TextBlock Text="4" Foreground="White" FontWeight="Bold" FontSize="12.5"
+                                    <TextBlock Text="4" Foreground="White" FontWeight="Bold" FontSize="12"
                                                HorizontalAlignment="Stretch" TextAlignment="Center" VerticalAlignment="Center" />
                                 </Border>
                                 <TextBlock Grid.Column="1" Style="{StaticResource SectionTitle}" Text="印章参数" />
@@ -306,7 +306,7 @@
                                             VerticalAlignment="Center">
                                     <TextBlock x:Name="txtStampParamOwnerPrefix" Text="当前参数："
                                                Style="{StaticResource SectionHint}" />
-                                    <TextBlock x:Name="txtStampParamOwnerName" Text="" FontSize="12.5"
+                                    <TextBlock x:Name="txtStampParamOwnerName" Text="" FontSize="11.5"
                                                Foreground="{StaticResource Color.Danger}" />
                                 </StackPanel>
                                 <Button Grid.Column="3" x:Name="btnFoldSealParams" Style="{StaticResource FoldButton}">
@@ -333,15 +333,15 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0" Text="印章尺寸" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                                    <TextBox Grid.Column="1" x:Name="txtStampSize" Text="40" Height="30"
+                                    <TextBox Grid.Column="1" x:Name="txtStampSize" Text="40" Height="26"
                                              VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
                                     <TextBlock Grid.Column="2" Text="mm" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="#666666" />
                                     <TextBlock Grid.Column="4" Text="旋转" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                                    <TextBox Grid.Column="5" x:Name="txtRotation" Text="0" Height="30"
+                                    <TextBox Grid.Column="5" x:Name="txtRotation" Text="0" Height="26"
                                              VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
                                     <TextBlock Grid.Column="6" Text="°" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="#666666" />
                                     <TextBlock Grid.Column="8" Text="旋转处理" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                                    <ComboBox Grid.Column="9" x:Name="comboRotationHandle" Width="100" Height="30"
+                                    <ComboBox Grid.Column="9" x:Name="comboRotationHandle" Width="100" Height="26"
                                               VerticalAlignment="Center" HorizontalAlignment="Left">
                                         <ComboBoxItem Content="旋转切边" />
                                         <ComboBoxItem Content="不切边" />
@@ -357,18 +357,18 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0" Text="不透明度" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                                    <TextBox Grid.Column="1" x:Name="txtOpacity" Text="60" Height="30"
+                                    <TextBox Grid.Column="1" x:Name="txtOpacity" Text="60" Height="26"
                                              VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
                                     <TextBlock Grid.Column="2" Text="%" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="#666666" />
                                     <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="34,0,0,0">
                                         <CheckBox x:Name="chkRandomParams" Content="随机" VerticalAlignment="Center" Margin="0,0,8,0"
                                                   Checked="ChkRandomParams_Changed" Unchecked="ChkRandomParams_Changed" />
                                         <TextBlock Text="±" VerticalAlignment="Center" Margin="0,0,3,0" Foreground="#666666" />
-                                        <TextBox x:Name="txtRandomRange" Text="5" Width="40" Height="30"
+                                        <TextBox x:Name="txtRandomRange" Text="5" Width="40" Height="26"
                                                  VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
                                         <TextBlock Text="°" VerticalAlignment="Center" Margin="3,0,6,0" Foreground="#666666" />
                                         <TextBlock Text="位移" VerticalAlignment="Center" Margin="0,0,3,0" Foreground="#666666" />
-                                        <TextBox x:Name="txtRandomOffsetMm" Text="5" Width="40" Height="30"
+                                        <TextBox x:Name="txtRandomOffsetMm" Text="5" Width="40" Height="26"
                                                  VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
                                         <TextBlock Text="mm" VerticalAlignment="Center" Margin="3,0,0,0" Foreground="#666666" />
                                     </StackPanel>
@@ -385,8 +385,8 @@
                                     <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="34,0,0,0">
                                         <CheckBox x:Name="chkTextureQuality" VerticalAlignment="Center" Margin="0,0,8,0"
                                                   Checked="ChkTextureQuality_Changed" Unchecked="ChkTextureQuality_Changed" />
-                                        <Button x:Name="btnTextureSettings" Style="{StaticResource Button.SecondarySquare}"
-                                                Content="盖章渲染" Width="90" Height="30" IsEnabled="False"
+                                        <Button x:Name="btnTextureSettings" Style="{StaticResource Button.Secondary}"
+                                                Content="" Width="90" Height="26"
                                                 VerticalAlignment="Center" Click="BtnTextureSettings_Click" />
                                     </StackPanel>
                                 </Grid>
@@ -405,7 +405,7 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0" Text="骑缝位置" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                                    <ComboBox Grid.Column="1" Grid.ColumnSpan="2" x:Name="comboSeamPosition" Width="76" MinWidth="0" MinHeight="0" Height="30"
+                                    <ComboBox Grid.Column="1" Grid.ColumnSpan="2" x:Name="comboSeamPosition" Width="76" MinWidth="0" MinHeight="0" Height="26"
                                               VerticalAlignment="Center" HorizontalAlignment="Left">
                                         <ComboBoxItem Content="上" />
                                         <ComboBoxItem Content="下" />
@@ -413,11 +413,11 @@
                                         <ComboBoxItem Content="右" />
                                     </ComboBox>
                                     <TextBlock Grid.Column="4" Text="位置" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                                    <TextBox Grid.Column="5" x:Name="txtSeamPosPct" Text="50" Height="30"
+                                    <TextBox Grid.Column="5" x:Name="txtSeamPosPct" Text="50" Height="26"
                                              VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
                                     <TextBlock Grid.Column="6" Text="%" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="#666666" />
                                     <TextBlock Grid.Column="8" Text="分割数" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                                    <TextBox Grid.Column="9" x:Name="txtMaxSplit" Text="20" Width="46" Height="30"
+                                    <TextBox Grid.Column="9" x:Name="txtMaxSplit" Text="20" Width="46" Height="26"
                                              VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
                                 </Grid>
                                 <!-- 行4：去除白色背景 + 容差 -->
@@ -437,7 +437,7 @@
                                     <CheckBox Grid.Column="0" Grid.ColumnSpan="3" x:Name="chkRemoveWhite" Content="去除图章白色背景" VerticalAlignment="Center"
                                               HorizontalAlignment="Left" Margin="10,0,0,0" />
                                     <TextBlock Grid.Column="4" Text="容差" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                                    <TextBox Grid.Column="5" x:Name="txtTolerance" Text="20" Height="30"
+                                    <TextBox Grid.Column="5" x:Name="txtTolerance" Text="20" Height="26"
                                              VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
                                 </Grid>
                             </StackPanel>
@@ -447,7 +447,7 @@
                     <!-- ===== 卡片5：其他设置（折叠） ===== -->
                     <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                         <StackPanel>
-                            <Grid Margin="0,0,0,10" x:Name="otherHeaderGrid">
+                            <Grid Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
@@ -456,7 +456,7 @@
                                 </Grid.ColumnDefinitions>
                                 <Border Grid.Column="0" Background="{StaticResource Color.Primary}" CornerRadius="4"
                                         Width="20" Height="20" Margin="0,0,8,0">
-                                    <TextBlock Text="5" Foreground="White" FontWeight="Bold" FontSize="12.5"
+                                    <TextBlock Text="5" Foreground="White" FontWeight="Bold" FontSize="12"
                                                HorizontalAlignment="Stretch" TextAlignment="Center" VerticalAlignment="Center" />
                                 </Border>
                                 <TextBlock Grid.Column="1" Style="{StaticResource SectionTitle}" Text="其他设置" />
@@ -483,10 +483,10 @@
                                 </Grid>
                                 <WrapPanel Orientation="Horizontal" Margin="0,0,0,8">
                                     <TextBlock Text="签名/证书" VerticalAlignment="Center" Margin="0,0,5,0" />
-                                    <TextBox x:Name="txtSignature" Width="120" Height="30"
+                                    <TextBox x:Name="txtSignature" Width="120" Height="26"
                                              VerticalContentAlignment="Center" IsEnabled="False" />
                                     <TextBlock Text="密码" VerticalAlignment="Center" Margin="16,0,5,0" />
-                                    <PasswordBox x:Name="txtSignaturePass" Width="120" Height="30"
+                                    <PasswordBox x:Name="txtSignaturePass" Width="120" Height="26"
                                                  VerticalContentAlignment="Center" IsEnabled="False" />
                                 </WrapPanel>
                                 <Grid>
@@ -591,14 +591,14 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="当前文件" VerticalAlignment="Center" Margin="0,0,8,0" />
-                <ComboBox Grid.Column="1" x:Name="comboCurrentFile" VerticalAlignment="Center" MinWidth="0" Height="30" />
+                <ComboBox Grid.Column="1" x:Name="comboCurrentFile" VerticalAlignment="Center" MinWidth="0" MaxHeight="30" />
                 <TextBlock Grid.Column="2" x:Name="txtFileTotalPages" Style="{StaticResource SectionHint}"
                            VerticalAlignment="Center" Margin="8,0,0,0" />
                 <Border Grid.Column="3" Background="{StaticResource Color.Primary}" CornerRadius="4"
                         Margin="12,0,0,0" VerticalAlignment="Center">
                     <Button x:Name="btnHelp" Background="Transparent" BorderThickness="0"
                             Padding="14,5" Cursor="Hand" Click="BtnHelp_Click">
-                        <TextBlock Text="使用说明" Foreground="White" FontWeight="Bold" FontSize="12.5" />
+                        <TextBlock Text="使用说明" Foreground="White" FontWeight="Bold" FontSize="12" />
                     </Button>
                 </Border>
             </Grid>
@@ -611,34 +611,34 @@
                     <!-- 翻页组 -->
                     <StackPanel Orientation="Horizontal">
                         <Button x:Name="btnPrev" Style="{StaticResource Button.Secondary}" Content="上一页"
-                                Height="30" Padding="12,0" Margin="0,0,6,0" />
+                                Height="26" Padding="12,0" Margin="0,0,6,0" />
                         <Button x:Name="btnNext" Style="{StaticResource Button.Secondary}" Content="下一页"
-                                Height="30" Padding="12,0" Margin="0,0,8,0" />
-                        <TextBox x:Name="txtPageNow" Width="50" Height="30" Padding="0"
+                                Height="26" Padding="12,0" Margin="0,0,8,0" />
+                        <TextBox x:Name="txtPageNow" Width="50" Height="26" Padding="0"
                                  TextAlignment="Center" VerticalContentAlignment="Center" Margin="0,0,4,0" />
                         <TextBlock x:Name="txtPageTotal" Text="/ 0 页" VerticalAlignment="Center"
-                                   FontSize="12.5" Foreground="#333333" Margin="0,0,22,0" />
+                                   FontSize="12" Foreground="#333333" Margin="0,0,22,0" />
                     </StackPanel>
                     <Border x:Name="previewToolbarSep1" Width="1" Height="18" Background="{StaticResource Color.Border}" VerticalAlignment="Center" Margin="0,0,22,0" />
                     <!-- 缩放组 -->
                     <StackPanel Orientation="Horizontal">
                         <Button x:Name="btnZoomOut" Style="{StaticResource Button.Secondary}" Content="缩小"
-                                Height="30" Padding="12,0" Margin="0,0,6,0" />
+                                Height="26" Padding="12,0" Margin="0,0,6,0" />
                         <Button x:Name="btnZoomIn" Style="{StaticResource Button.Secondary}" Content="放大"
-                                Height="30" Padding="12,0" Margin="0,0,8,0" />
-                        <TextBox x:Name="txtZoomNow" Width="50" Height="30" Padding="0"
+                                Height="26" Padding="12,0" Margin="0,0,8,0" />
+                        <TextBox x:Name="txtZoomNow" Width="50" Height="26" Padding="0"
                                  TextAlignment="Center" VerticalContentAlignment="Center" Margin="0,0,4,0" />
-                        <TextBlock x:Name="txtPercent" Text="%" VerticalAlignment="Center" FontSize="12.5" Foreground="#333333" Margin="0,0,22,0" />
+                        <TextBlock x:Name="txtPercent" Text="%" VerticalAlignment="Center" FontSize="12" Foreground="#333333" Margin="0,0,22,0" />
                     </StackPanel>
                     <Border x:Name="previewToolbarSep2" Width="1" Height="18" Background="{StaticResource Color.Border}" VerticalAlignment="Center" Margin="0,0,22,0" />
                     <!-- 视图组 -->
                     <StackPanel Orientation="Horizontal">
                         <ToggleButton x:Name="btnFitPage" Style="{StaticResource Toggle.ViewMode}" Content="单页视图"
-                                Height="30" Padding="12,0" Margin="0,0,6,0" />
+                                Height="26" Padding="12,0" Margin="0,0,6,0" />
                         <ToggleButton x:Name="btnFitWidth" Style="{StaticResource Toggle.ViewMode}" Content="放大视图"
-                                Height="30" Padding="12,0" Margin="0,0,6,0" />
+                                Height="26" Padding="12,0" Margin="0,0,6,0" />
                         <ToggleButton x:Name="btnFitDouble" Style="{StaticResource Toggle.ViewMode}" Content="双页视图"
-                                Height="30" Padding="12,0" />
+                                Height="26" Padding="12,0" />
                     </StackPanel>
                 </WrapPanel>
             </Border>

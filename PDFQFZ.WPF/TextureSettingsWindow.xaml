@@ -1,0 +1,83 @@
+<Window x:Class="PDFQFZ.WPF.TextureSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:PDFQFZ.WPF.Controls"
+        Title="盖章渲染参数"
+        Width="540" MinWidth="520" MinHeight="360"
+        SizeToContent="Height" ResizeMode="CanResize"
+        WindowStartupLocation="Manual" ShowInTaskbar="False"
+        Background="{StaticResource Color.WindowBg}" FontFamily="{StaticResource Font.App}" FontSize="12.5">
+    <StackPanel Margin="16">
+        <!-- 顶部：左侧 4 个渲染方案（点击弹保存/加载菜单），右侧恢复默认（主界面按钮样式） -->
+        <DockPanel Margin="0,0,0,12">
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" HorizontalAlignment="Left">
+                <Button x:Name="btnPreset1" Content="方案1" Style="{StaticResource Button.Secondary}"
+                        Width="72" Height="30" Margin="0,0,6,0" Tag="1" Click="BtnPreset_Click" />
+                <Button x:Name="btnPreset2" Content="方案2" Style="{StaticResource Button.Secondary}"
+                        Width="72" Height="30" Margin="0,0,6,0" Tag="2" Click="BtnPreset_Click" />
+                <Button x:Name="btnPreset3" Content="方案3" Style="{StaticResource Button.Secondary}"
+                        Width="72" Height="30" Margin="0,0,6,0" Tag="3" Click="BtnPreset_Click" />
+                <Button x:Name="btnPreset4" Content="方案4" Style="{StaticResource Button.Secondary}"
+                        Width="72" Height="30" Margin="0,0,6,0" Tag="4" Click="BtnPreset_Click" />
+            </StackPanel>
+            <Button x:Name="btnReset" Content="恢复默认" Style="{StaticResource Button.Secondary}"
+                    Width="80" Height="30" DockPanel.Dock="Right"
+                    HorizontalAlignment="Right" Click="OnResetClick" />
+        </DockPanel>
+
+        <!-- 功能块1：明暗与纹理（印泥浓淡不均 / 渐变 / 径向压印） -->
+        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+            <StackPanel>
+                <TextBlock Text="明暗与纹理" Style="{StaticResource SectionTitle}" />
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <controls:NumericSliderRow Grid.Column="0" Margin="0,0,10,0" x:Name="rowBrightness" Title="印泥浓淡不均" Minimum="0" Maximum="100" />
+                    <controls:NumericSliderRow Grid.Column="1" Margin="10,0,0,0" x:Name="rowGradient" Title="渐变" Minimum="0" Maximum="100" />
+                </Grid>
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <controls:NumericSliderRow Grid.Column="0" Margin="0,0,10,0" x:Name="rowRadial" Title="径向压印" Minimum="0" Maximum="100" />
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- 功能块2：斑点（内部斑点 / 斑点大小） -->
+        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+            <StackPanel>
+                <TextBlock Text="斑点" Style="{StaticResource SectionTitle}" />
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <controls:NumericSliderRow Grid.Column="0" Margin="0,0,10,0" x:Name="rowSpot" Title="内部斑点" Minimum="0" Maximum="100" />
+                    <controls:NumericSliderRow Grid.Column="1" Margin="10,0,0,0" x:Name="rowBlob" Title="斑点大小" Minimum="0" Maximum="100" />
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- 功能块3：颜色（色调 / 局部露白） -->
+        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+            <StackPanel>
+                <TextBlock Text="颜色" Style="{StaticResource SectionTitle}" />
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <controls:NumericSliderRow Grid.Column="0" Margin="0,0,10,0" x:Name="rowCast" Title="色调" Minimum="-100" Maximum="100" />
+                    <controls:NumericSliderRow Grid.Column="1" Margin="10,0,0,0" x:Name="rowWhite" Title="局部露白" Minimum="0" Maximum="100" />
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <TextBlock Text="修改实时生效，可在预览区盖章调试参数，调整好参数直接关闭窗口即可"
+                   Foreground="{StaticResource Color.TextSecondary}" TextWrapping="Wrap" />
+    </StackPanel>
+</Window>

@@ -418,7 +418,7 @@ namespace PDFQFZ.Library
         /// 出现指定关键词时才保留。requireAll=true 表示需同时出现所有关键词（且），false 表示出现任一即可（或）。
         /// contextKeywords 为空或全空白时退化为不过滤，等同于 FindAll(text, matchCase)。
         /// </summary>
-        public List<PdfTextMatch> FindAll(string text, string[] contextKeywords, int contextRange, bool requireAll, bool matchCase = false)
+        public List<PdfTextMatch> FindAll(string text, string[] contextKeywords, int contextRange, bool requireAll, bool excludeSpaces = false, bool matchCase = false)
         {
             // 关键词为空 → 退化为不过滤
             if (contextKeywords == null || contextKeywords.Length == 0)
@@ -495,9 +495,34 @@ namespace PDFQFZ.Library
                                         continue;
                                     }
 
-                                    // 读取上下文：前 contextRange 字 + 匹配文字 + 后 contextRange 字，自动截断到页面边界
-                                    int ctxStart = Math.Max(0, startChar - contextRange);
-                                    int ctxEnd = Math.Min(totalChars, startChar + charCount + contextRange);
+                                    // 读取上下文：前 contextRange 字 + 匹配文字 + 后 contextRange 字，自动截断到页面边界；
+                                    // excludeSpaces=true 时空白字符（空格/换行/制表符等）不计入范围额度，只数有效字符
+                                    int ctxStart;
+                                    int ctxEnd;
+                                    if (excludeSpaces)
+                                    {
+                                        ctxStart = startChar;
+                                        ctxEnd = startChar + charCount;
+                                        int seen = 0;
+                                        while (ctxStart > 0 && seen < contextRange)
+                                        {
+                                            ctxStart--;
+                                            string ch = PdfiumTextNative.TextGetText(textPage, ctxStart, 1);
+                                            if (!string.IsNullOrWhiteSpace(ch)) seen++;
+                                        }
+                                        seen = 0;
+                                        while (ctxEnd < totalChars && seen < contextRange)
+                                        {
+                                            string ch = PdfiumTextNative.TextGetText(textPage, ctxEnd, 1);
+                                            if (!string.IsNullOrWhiteSpace(ch)) seen++;
+                                            ctxEnd++;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        ctxStart = Math.Max(0, startChar - contextRange);
+                                        ctxEnd = Math.Min(totalChars, startChar + charCount + contextRange);
+                                    }
                                     string context = ctxEnd > ctxStart
                                         ? PdfiumTextNative.TextGetText(textPage, ctxStart, ctxEnd - ctxStart)
                                         : string.Empty;

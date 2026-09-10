@@ -37,6 +37,7 @@ namespace PDFQFZ.WPF
         private int currentPageIndex;          // 0-based
 
         private readonly StampPlacementCollection stampPlacements = new StampPlacementCollection();
+    private bool _debugPageActive;          // 无 PDF 时预览区显示空白调试页，可盖章调试渲染参数
         private readonly List<AutoStampOperation> autoStampOperations = new List<AutoStampOperation>();
         private readonly Dictionary<int, System.Windows.Controls.Image> overlayImages =
             new Dictionary<int, System.Windows.Controls.Image>();
@@ -89,8 +90,15 @@ namespace PDFQFZ.WPF
 
         // 当前选中的印章文件名（用于按印章分别保存/恢复参数）
         private string _currentStampFileName = "";
+        /// <summary>印章条目列表（内存数据源，含显示名/路径/勾选状态）。</summary>
+        private readonly List<StampPickerItem> _stampItems = new List<StampPickerItem>();
+        private bool _suppressStampSelection = false; // Rebuild 设置 SelectedItem 时抑制 SelectionChanged 递归
+        /// <summary>勾选印章的显示名集合（按勾选顺序；主章=第一个）。</summary>
+        private readonly List<string> _selectedStampNames = new List<string>();
         private bool _maxSplitUserModified;        // 用户是否手动改过骑缝章分割数（自动重置不写入印章记忆）
         private bool _suppressMaxSplitTrack;       // 代码赋值 txtMaxSplit 时抑制 TextChanged 标记
+        private bool _suppressStampParamSave;      // ApplyStampParams 加载参数到界面时抑制反向保存
+        private bool _suppressCenterOffsetSync;   // 代码赋值中心偏移控件时抑制反向保存
 
         public MainWindow(string[] args)
         {
@@ -102,7 +110,12 @@ namespace PDFQFZ.WPF
             HookEvents();
             HookAutoKeywordWatermark();
             HookContextFilterEvents();
+            HookCenterOffsetEvents();
             UpdateAutoKeywordWatermark();
+
+            // 滚动条：点击轨道直接跳转到点击位置（统一交互）
+            settingsScroll.PreviewMouseLeftButtonDown += ScrollViewer_TrackJump;
+            logScroll.PreviewMouseLeftButtonDown += ScrollViewer_TrackJump;
 
             if (args != null && args.Length > 0 && File.Exists(args[0]))
             {
@@ -114,18 +127,21 @@ namespace PDFQFZ.WPF
         private void InitFoldState()
         {
             // 按配置恢复 3/4/5 的展开收起状态（config.ini 关闭时保存，首次默认：按文字盖章展开、印章参数/其他设置折叠）
-            ApplyFoldState(autoTextContent, foldAutoTextArrow, foldAutoTextText, AppConfig.FoldAutoText == 1);
-            ApplyFoldState(sealParamsContent, foldSealParamsArrow, foldSealParamsText, AppConfig.FoldSealParams == 1);
-            ApplyFoldState(otherContent, foldOtherArrow, foldOtherText, AppConfig.FoldOther == 1);
+            ApplyFoldState(autoTextContent, foldAutoTextArrow, foldAutoTextText, autoTextHeaderGrid, AppConfig.FoldAutoText == 1);
+            ApplyFoldState(sealParamsContent, foldSealParamsArrow, foldSealParamsText, sealParamsHeaderGrid, AppConfig.FoldSealParams == 1);
+            ApplyFoldState(otherContent, foldOtherArrow, foldOtherText, otherHeaderGrid, AppConfig.FoldOther == 1);
         }
 
-        /// <summary>按指定展开状态设置折叠区域（内容可见性、箭头、文字、展开红字提醒）。</summary>
+        /// <summary>按指定展开状态设置折叠区域（内容可见性、箭头、文字、展开红字提醒、标题行间距）。</summary>
+        /// <remarks>收起态：标题行底部间距归零，标题行在卡片内上下居中，收起高度更紧凑；展开态：恢复标题与内容的 10px 间距。</remarks>
         private static void ApplyFoldState(System.Windows.Controls.StackPanel content,
                                            System.Windows.Controls.TextBlock arrow,
                                            System.Windows.Controls.TextBlock text,
+                                           System.Windows.Controls.Grid header,
                                            bool expanded)
         {
             content.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+            header.Margin = expanded ? new Thickness(0, 0, 0, 10) : new Thickness(0);
             arrow.Text = expanded ? "▼" : "▶";
             text.Text = expanded ? "收起设置" : "展开设置";
             System.Windows.Media.Brush redBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xCC, 0x33, 0x33));
@@ -188,6 +204,7 @@ namespace PDFQFZ.WPF
                 txtContextKeywords.Text = string.IsNullOrEmpty(AppConfig.ContextKeywords) ? "盖章,公章" : AppConfig.ContextKeywords;
                 txtContextRange.Text = AppConfig.ContextRange.ToString();
                 comboContextMatch.SelectedIndex = (AppConfig.ContextMatch == 1) ? 1 : 0;
+                chkContextExcludeSpaces.IsChecked = AppConfig.ContextExcludeSpaces;
                 UpdateContextFilterEnabled();
                 UpdateContextKeywordsWatermark();
 
@@ -300,10 +317,14 @@ namespace PDFQFZ.WPF
             btnSourcePdf.Click += (s, e) => ShowSourcePickMenu();
             btnOutputDir.Click += (s, e) => ChooseOutputDir();
             btnStampFile.Click += (s, e) => ChooseStampFile();
-            comboStamp.SelectionChanged += (s, e) => OnStampSelectionChanged();
+            // 印章下拉：删除/重命名/选择在各自事件里调用 OnStampSelectionChanged
             // 用 Preview 事件确保文件拖放可靠（TextBox 内部会拦截普通 DragOver/Drop）
             txtSourcePdf.PreviewDragOver += (s, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.Copy; e.Handled = true; } };
             txtSourcePdf.PreviewDrop += OnSourceDrop;
+            // 文件/文件夹拖到预览区也可加载（作为源 PDF/目录，与源文件框同一处理）
+            previewBorder.AllowDrop = true;   // Border 默认不接收拖放，必须显式开启
+            previewBorder.PreviewDragOver += (s, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.Copy; e.Handled = true; } };
+            previewBorder.PreviewDrop += OnSourceDrop;
             txtOutputDir.PreviewDragOver += (s, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.Copy; e.Handled = true; } };
             txtOutputDir.PreviewDrop += OnOutputDrop;
             // 当前文件下拉：切换时加载对应文件预览
@@ -350,9 +371,9 @@ namespace PDFQFZ.WPF
             // 键盘翻页（对齐原版 PreviewNavigation_KeyDown：PageUp/Down、上下左右翻页；输入框聚焦时不拦截）
             PreviewKeyDown += OnWindowPreviewKeyDown;
 
-            btnFoldSealParams.Click += (s, e) => ToggleFold(sealParamsContent, foldSealParamsArrow, foldSealParamsText);
-            btnFoldOther.Click += (s, e) => ToggleFold(otherContent, foldOtherArrow, foldOtherText);
-            btnFoldAutoText.Click += (s, e) => ToggleFold(autoTextContent, foldAutoTextArrow, foldAutoTextText);
+            btnFoldSealParams.Click += (s, e) => ToggleFold(sealParamsContent, foldSealParamsArrow, foldSealParamsText, sealParamsHeaderGrid);
+            btnFoldOther.Click += (s, e) => ToggleFold(otherContent, foldOtherArrow, foldOtherText, otherHeaderGrid);
+            btnFoldAutoText.Click += (s, e) => ToggleFold(autoTextContent, foldAutoTextArrow, foldAutoTextText, autoTextHeaderGrid);
             // 用户手动修改分割数（代码赋值由 _suppressMaxSplitTrack 抑制，不算手动）
             txtMaxSplit.TextChanged += (s, e) =>
             {
@@ -406,11 +427,38 @@ namespace PDFQFZ.WPF
             // 必须延迟到布局完成后再读 ActualHeight，否则 SizeChanged 同步阶段拿到的是旧值。
             SizeChanged += (s, e) => Dispatcher.BeginInvoke(new Action(UpdateSettingsHeight),
                 System.Windows.Threading.DispatcherPriority.Loaded);
-            Loaded += (s, e) => { UpdateSettingsHeight(); RestoreLeftPanelWidth(); UpdateToolbarSpacing(); };
+            Loaded += (s, e) =>
+            {
+                UpdateTextureEnabled();   // 启动后按配置/默认勾选态设置盖章渲染按钮（初始文字/置灰在 XAML 声明，此处仅按配置覆盖）
+                UpdateSettingsHeight();
+                RestoreLeftPanelWidth();
+                UpdateToolbarSpacing();
+                // 启动后无文件时显示内置调试 PDF（可盖章调试渲染参数），延迟到布局就绪
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (pdfRenderer == null && !_debugPageActive && string.IsNullOrEmpty(sourcePath))
+                    {
+                        ShowBlankDebugPage();
+                    }
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
+            };
 
             // 去除白色背景：未勾选时容差不可编辑
             chkRemoveWhite.Checked += (s, e) => UpdateToleranceEnabled();
             chkRemoveWhite.Unchecked += (s, e) => UpdateToleranceEnabled();
+
+            // 印章参数：界面改动立即保存到当前章记忆（改即生效；MaxSplit 遵循“手动修改才记忆”规则，不在此自动保存）
+            txtStampSize.TextChanged += (s, e) => SaveCurrentStampParams();
+            txtRotation.TextChanged += (s, e) => SaveCurrentStampParams();
+            txtOpacity.TextChanged += (s, e) => SaveCurrentStampParams();
+            txtRandomRange.TextChanged += (s, e) => SaveCurrentStampParams();
+            txtRandomOffsetMm.TextChanged += (s, e) => SaveCurrentStampParams();
+            txtTolerance.TextChanged += (s, e) => SaveCurrentStampParams();
+            comboRotationHandle.SelectionChanged += (s, e) => SaveCurrentStampParams();
+            chkRandomParams.Checked += (s, e) => SaveCurrentStampParams();
+            chkRandomParams.Unchecked += (s, e) => SaveCurrentStampParams();
+            chkRemoveWhite.Checked += (s, e) => SaveCurrentStampParams();
+            chkRemoveWhite.Unchecked += (s, e) => SaveCurrentStampParams();
 
             Closing += (s, e) =>
             {
@@ -458,6 +506,74 @@ namespace PDFQFZ.WPF
             txtContextKeywords.LostKeyboardFocus += (s, e) => UpdateContextKeywordsWatermark();
         }
 
+        // ===================== 中心偏移：随搜索文字记忆 =====================
+        private void HookCenterOffsetEvents()
+        {
+            chkCenterOffset.Checked += (s, e) => UpdateCenterOffsetEnabledAndSave();
+            chkCenterOffset.Unchecked += (s, e) => UpdateCenterOffsetEnabledAndSave();
+            txtCenterOffsetX.TextChanged += (s, e) => SaveCenterOffsetFromUi();
+            txtCenterOffsetY.TextChanged += (s, e) => SaveCenterOffsetFromUi();
+            // 关键词确定（失焦/关闭下拉）后加载该词记忆的偏移；输入击键时不加载，避免打断输入
+            comboAutoKeyword.LostKeyboardFocus += (s, e) =>
+            {
+                UpdateAutoKeywordWatermark();
+                LoadCenterOffsetFromKeyword(comboAutoKeyword.Text);
+            };
+            comboAutoKeyword.DropDownClosed += (s, e) => LoadCenterOffsetFromKeyword(comboAutoKeyword.Text);
+        }
+
+        /// <summary>勾选/取消勾选：启用/禁用输入框并保存记忆。</summary>
+        private void UpdateCenterOffsetEnabledAndSave()
+        {
+            bool on = chkCenterOffset.IsChecked == true;
+            txtCenterOffsetX.IsEnabled = on;
+            txtCenterOffsetY.IsEnabled = on;
+            SaveCenterOffsetFromUi();
+        }
+
+        /// <summary>把界面当前勾选与横纵值保存到当前关键词记忆（该词不在历史中则静默跳过）。</summary>
+        private void SaveCenterOffsetFromUi()
+        {
+            if (_suppressCenterOffsetSync)
+            {
+                return;
+            }
+            string keyword = comboAutoKeyword.Text.Trim();
+            if (keyword.Length == 0)
+            {
+                return;
+            }
+            float x, y;
+            float.TryParse(txtCenterOffsetX.Text, out x);
+            float.TryParse(txtCenterOffsetY.Text, out y);
+            AppConfig.SetCenterOffsetForKeyword(keyword, chkCenterOffset.IsChecked == true, x, y);
+        }
+
+        /// <summary>按关键词加载记忆的偏移到界面；无记忆则恢复默认（不勾选、0/0）。</summary>
+        private void LoadCenterOffsetFromKeyword(string keyword)
+        {
+            if (_suppressCenterOffsetSync)
+            {
+                return;
+            }
+            _suppressCenterOffsetSync = true;
+            try
+            {
+                bool enabled;
+                float x, y;
+                AppConfig.GetCenterOffsetForKeyword(keyword.Trim(), out enabled, out x, out y);
+                chkCenterOffset.IsChecked = enabled;
+                txtCenterOffsetX.Text = x.ToString("0.##");
+                txtCenterOffsetY.Text = y.ToString("0.##");
+                txtCenterOffsetX.IsEnabled = enabled;
+                txtCenterOffsetY.IsEnabled = enabled;
+            }
+            finally
+            {
+                _suppressCenterOffsetSync = false;
+            }
+        }
+
         /// <summary>根据勾选状态启用/禁用关键词输入框、范围输入框、匹配方式下拉。</summary>
         private void UpdateContextFilterEnabled()
         {
@@ -465,6 +581,7 @@ namespace PDFQFZ.WPF
             txtContextKeywords.IsEnabled = enabled;
             txtContextRange.IsEnabled = enabled;
             comboContextMatch.IsEnabled = enabled;
+            chkContextExcludeSpaces.IsEnabled = enabled;
         }
 
         /// <summary>关键词输入框为空且未聚焦时显示占位提示。</summary>
@@ -495,58 +612,87 @@ namespace PDFQFZ.WPF
             }
         }
 
-        /// <summary>印章下拉项的删除按钮：从 yz.log 移除该印章，并刷新列表。</summary>
-        private void StampDelete_Click(object sender, RoutedEventArgs e)
+        /// <summary>印章下拉项的删除按钮：从配置移除该印章并刷新列表（e.Handled 防止冒泡到下拉选中）。</summary>
+        private void StampPickerDelete_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is System.Windows.Controls.Button btn && btn.Tag is string path)
+            e.Handled = true;
+            if (sender is System.Windows.Controls.Button btn && btn.Tag is StampPickerItem item)
             {
-                e.Handled = true;
-                string fileName = Path.GetFileName(path);
-
-                // 从配置文件删除
-                AppConfig.RemoveStampPath(path);
-
-                // 从下拉列表移除对应项
-                StampItem itemToRemove = null;
-                foreach (var obj in comboStamp.Items)
-                {
-                    if (obj is StampItem item && item.Tag is string p
-                        && string.Equals(p, path, StringComparison.OrdinalIgnoreCase))
-                    {
-                        itemToRemove = item;
-                        break;
-                    }
-                }
-                bool removedSelected = (itemToRemove != null && comboStamp.SelectedItem == itemToRemove);
-                if (itemToRemove != null)
-                {
-                    comboStamp.Items.Remove(itemToRemove);
-                }
-
-                // 删除的是当前选中项 → 自动切到第一个（或清空）
-                if (removedSelected)
-                {
-                    if (comboStamp.Items.Count > 0)
-                    {
-                        comboStamp.SelectedIndex = 0;
-                    }
-                    else
-                    {
-                        comboStamp.SelectedIndex = -1;
-                        _currentStampFileName = null;
-                    }
-                }
-
-                comboStamp.IsDropDownOpen = false;
-                SetOperationHint(string.Format("已从印章列表删除：“{0}”。", fileName));
+                DeleteStampItem(item);
             }
         }
 
+        /// <summary>删除一个印章条目：先保存当前主章参数，再删配置 + 内存列表 + 勾选集合 + 参数节。</summary>
+        private void DeleteStampItem(StampPickerItem item)
+        {
+            if (item == null) return;
+            string name = item.DisplayName;
+            // 先保存当前主章参数（删除操作会触发主章变化，先保存旧主章参数）
+            SaveCurrentStampParams();
+            AppConfig.RemoveStampEntry(name);
+            _stampItems.RemoveAll(i => string.Equals(i.DisplayName, name, StringComparison.OrdinalIgnoreCase));
+            _selectedStampNames.RemoveAll(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+            // 删除的是当前章且列表仍有章：自动选中第一个
+            if (_selectedStampNames.Count == 0 && _stampItems.Count > 0)
+            {
+                _stampItems[0].IsSelected = true;
+                _selectedStampNames.Add(_stampItems[0].DisplayName);
+            }
+            RebuildStampPickerList();
+            OnStampSelectionChanged();
+            SetOperationHint(string.Format("已从印章列表删除：“{0}”。", name));
+        }
+
+        /// <summary>重命名印章：弹窗输入新名（1-30 字符、不重名），参数记忆与勾选集自动迁移。</summary>
+        private void RenameStamp(StampPickerItem item)
+        {
+            if (item == null) return;
+            var dlg = new RenameStampDialog(
+                string.Format("为印章“{0}”输入新的名称（1-30 个字符，不能与现有印章重名）：", item.DisplayName),
+                item.DisplayName)
+            { Owner = this, Title = "重命名印章" };
+            if (dlg.ShowDialog() != true) return;
+            string newName = dlg.ResultName;
+            if (newName.Length == 0 || string.Equals(newName, item.DisplayName, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+            if (newName.IndexOf('|') >= 0 || newName.IndexOf(';') >= 0)
+            {
+                MessageBox.Show("印章名称不能包含“|”或“；”字符。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (AppConfig.StampDisplayNameExists(newName))
+            {
+                MessageBox.Show("已存在同名印章：“" + newName + "”。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            string oldName = item.DisplayName;
+            AppConfig.RenameStampEntry(oldName, newName);
+            item.DisplayName = newName;
+            for (int i = 0; i < _selectedStampNames.Count; i++)
+            {
+                if (string.Equals(_selectedStampNames[i], oldName, StringComparison.OrdinalIgnoreCase))
+                {
+                    _selectedStampNames[i] = newName;
+                }
+            }
+            if (string.Equals(_currentStampFileName, oldName, StringComparison.OrdinalIgnoreCase))
+            {
+                _currentStampFileName = newName;
+            }
+            RebuildStampPickerList();
+            RefreshStampPickerDisplay();
+            SetOperationHint(string.Format("印章已重命名：“{0}”→“{1}”。", oldName, newName));
+        }
+
         // ===================== 折叠 =====================
-        private void ToggleFold(System.Windows.Controls.StackPanel content, System.Windows.Controls.TextBlock arrow, System.Windows.Controls.TextBlock text)
+        private void ToggleFold(System.Windows.Controls.StackPanel content, System.Windows.Controls.TextBlock arrow, System.Windows.Controls.TextBlock text, System.Windows.Controls.Grid header)
         {
             bool collapsed = content.Visibility != Visibility.Visible;
             content.Visibility = collapsed ? Visibility.Visible : Visibility.Collapsed;
+            // 收起态：标题行底部间距归零上下居中；展开态：恢复标题与内容的 10px 间距
+            header.Margin = collapsed ? new Thickness(0, 0, 0, 10) : new Thickness(0);
             arrow.Text = collapsed ? "▼" : "▶";
             text.Text = collapsed ? "收起设置" : "展开设置";
             // 展开状态（显示"收起设置"）时文字和箭头用红色，提醒用户可以点击收起；收起状态恢复默认色
@@ -596,7 +742,8 @@ namespace PDFQFZ.WPF
             {
                 Filter = "PDF 文件|*.pdf|所有文件|*.*",
                 Title = "选择源 PDF 文件",
-                Multiselect = true
+                Multiselect = true,
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop)
             };
             if (dlg.ShowDialog(this) == true)
             {
@@ -610,7 +757,7 @@ namespace PDFQFZ.WPF
 
         private void ChooseSourceDirectory()
         {
-            var dlg = new System.Windows.Forms.FolderBrowserDialog { Description = "选择 PDF 所在文件夹" };
+            var dlg = new System.Windows.Forms.FolderBrowserDialog { Description = "选择 PDF 所在文件夹", SelectedPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop) };
             if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
             {
                 // 输出目录由 LoadDirectory 统一设为“所选文件夹\已盖章”
@@ -689,13 +836,13 @@ namespace PDFQFZ.WPF
             if (suppressCurrentFileEvent) return;
             if (comboCurrentFile.SelectedItem is ComboBoxItem item && item.Tag is string path && File.Exists(path))
             {
-                LoadPdf(path);
+                LoadPdf(path, keepStampData: true);
             }
         }
 
         private void ChooseOutputDir()
         {
-            var dlg = new System.Windows.Forms.FolderBrowserDialog { Description = "选择输出目录" };
+            var dlg = new System.Windows.Forms.FolderBrowserDialog { Description = "选择输出目录", SelectedPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop) };
             if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
             {
                 txtOutputDir.Text = dlg.SelectedPath;
@@ -707,89 +854,318 @@ namespace PDFQFZ.WPF
             var dlg = new OpenFileDialog
             {
                 Filter = "图片文件|*.png;*.jpg;*.jpeg;*.bmp;*.gif|所有文件|*.*",
-                Title = "选择印章图片（可多选，追加到印章列表）",
-                Multiselect = true
+                Title = "选择印章图片（可多选导入，追加到印章列表）",
+                Multiselect = true,
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop)
             };
-            if (dlg.ShowDialog(this) == true)
-            {
-                var added = new List<string>();
-                foreach (string filePath in dlg.FileNames)
-                {
-                    comboStamp.Items.Add(new StampItem { Content = Path.GetFileName(filePath), Tag = filePath });
-                    added.Add(filePath);
-                }
-                if (added.Count > 0)
-                {
-                    AppConfig.AppendStampPaths(added);
-                    // 对齐原版：导入后选中最新一张
-                    comboStamp.SelectedIndex = comboStamp.Items.Count - 1;
-                }
-            }
-        }
-
-        /// <summary>加载印章列表（yz.log），并选中上次使用的印章；列表为空时用配置路径补一条。</summary>
-        private void LoadStampList()
-        {
-            comboStamp.Items.Clear();
-            List<string> paths = AppConfig.LoadStampPaths();
-            if (paths.Count == 0 && !string.IsNullOrWhiteSpace(AppConfig.LastStampImagePath)
-                && File.Exists(AppConfig.LastStampImagePath))
-            {
-                paths.Add(AppConfig.LastStampImagePath);
-                AppConfig.AppendStampPaths(new[] { AppConfig.LastStampImagePath });
-            }
-
-            StampItem lastUsed = null;
-            foreach (string path in paths)
-            {
-                var item = new StampItem { Content = Path.GetFileName(path), Tag = path };
-                comboStamp.Items.Add(item);
-                if (string.Equals(path, AppConfig.LastStampImagePath, StringComparison.OrdinalIgnoreCase))
-                {
-                    lastUsed = item;
-                }
-            }
-            if (lastUsed != null)
-            {
-                comboStamp.SelectedItem = lastUsed;
-            }
-            else if (comboStamp.Items.Count > 0)
-            {
-                comboStamp.SelectedIndex = 0;
-            }
-        }
-
-        /// <summary>当前选中的印章路径；未选中时返回空字符串。</summary>
-        private string SelectedStampPath()
-        {
-            if (comboStamp.SelectedItem is StampItem item && item.Tag is string path)
-            {
-                return path;
-            }
-            return string.Empty;
-        }
-
-        private void OnStampSelectionChanged()
-        {
-            string path = SelectedStampPath();
-            if (path.Length == 0)
+            if (dlg.ShowDialog(this) != true)
             {
                 return;
             }
+            int imported = 0;
+            foreach (string filePath in dlg.FileNames)
+            {
+                string defaultName = Path.GetFileNameWithoutExtension(filePath);
+                if (defaultName.Length > 30) defaultName = defaultName.Substring(0, 30);
+                string finalName = defaultName;
 
-            // 先保存上一个印章的参数（首次切换时 _currentStampFileName 为空，跳过）
-            SaveCurrentStampParams();
+                // 重名 → 生成不重名候选名并弹窗让用户确认/改名；取消则跳过该文件
+                if (AppConfig.StampDisplayNameExists(finalName))
+                {
+                    string candidate = BuildUniqueStampName(finalName);
+                    var renameDlg = new RenameStampDialog(
+                        string.Format("已存在同名印章：“{0}”。\n请输入新的印章名称（1-30 个字符，不能与现有印章重名）：", finalName),
+                        candidate)
+                    { Owner = this, Title = "印章重名" };
+                    if (renameDlg.ShowDialog() != true) continue;
+                    finalName = renameDlg.ResultName;
+                    if (finalName.Length == 0) continue;
+                    if (finalName.IndexOf('|') >= 0 || finalName.IndexOf(';') >= 0)
+                    {
+                        MessageBox.Show("印章名称不能包含“|”或“；”字符，已跳过该文件：" + filePath,
+                            "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                        continue;
+                    }
+                    if (AppConfig.StampDisplayNameExists(finalName))
+                    {
+                        MessageBox.Show("已存在同名印章：“" + finalName + "”，已跳过该文件。",
+                            "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                        continue;
+                    }
+                }
 
-            string fileName = Path.GetFileName(path);
-            _currentStampFileName = fileName;
-
-            // 加载新印章上次保存的参数（未保存过则用默认值）
-            AppConfig.StampParams p = AppConfig.LoadStampParams(fileName);
-            ApplyStampParams(p);
-
-            AppConfig.LastStampImagePath = path;
-            AppConfig.SaveUiConfig();
+                AppConfig.AppendStampEntry(finalName, filePath);
+                // 导入后不自动勾选：用户需要时手动勾选（勾选集合保持不变）
+                var item = new StampPickerItem { DisplayName = finalName, Path = filePath, IsSelected = false };
+                _stampItems.Add(item);
+                imported++;
+            }
+            if (imported > 0)
+            {
+                // 无选中章时自动选中最后导入的印章（自动加载到选择栏并记录，下次打开沿用）
+                if (_selectedStampNames.Count == 0 && _stampItems.Count > 0)
+                {
+                    StampPickerItem last = _stampItems[_stampItems.Count - 1];
+                    last.IsSelected = true;
+                    _selectedStampNames.Add(last.DisplayName);
+                }
+                RebuildStampPickerList();
+                OnStampSelectionChanged();
+                SetOperationHint(string.Format("已导入 {0} 个印章。", imported));
+            }
         }
+
+        /// <summary>生成不重名的印章名称候选：原名2、原名3…直到不与现有章重名。</summary>
+        private string BuildUniqueStampName(string baseName)
+        {
+            int i = 2;
+            while (AppConfig.StampDisplayNameExists(baseName + i.ToString()))
+            {
+                i++;
+            }
+            return baseName + i.ToString();
+        }
+
+        /// <summary>加载印章列表（config.ini），恢复上次勾选集合；勾选集为空时兼容旧配置（上次使用章/第一个）。</summary>
+        private void LoadStampList()
+        {
+            _stampItems.Clear();
+            _selectedStampNames.Clear();
+
+            List<AppConfig.StampEntry> entries = AppConfig.LoadStampEntries();
+            if (entries.Count == 0 && !string.IsNullOrWhiteSpace(AppConfig.LastStampImagePath)
+                && File.Exists(AppConfig.LastStampImagePath))
+            {
+                entries.Add(new AppConfig.StampEntry(
+                    Path.GetFileNameWithoutExtension(AppConfig.LastStampImagePath), AppConfig.LastStampImagePath));
+                AppConfig.AppendStampEntry(
+                    Path.GetFileNameWithoutExtension(AppConfig.LastStampImagePath), AppConfig.LastStampImagePath);
+            }
+
+            foreach (AppConfig.StampEntry e in entries)
+            {
+                _stampItems.Add(new StampPickerItem { DisplayName = e.DisplayName, Path = e.Path, IsSelected = false });
+            }
+
+            // 恢复选中（单选）：配置的章名优先；其次旧配置的上次使用章；仍没有则选第一个
+            StampPickerItem selected = null;
+            if (AppConfig.LastSelectedStampNames != null && AppConfig.LastSelectedStampNames.Count > 0)
+            {
+                selected = FindStampItem(AppConfig.LastSelectedStampNames[0]);
+            }
+            if (selected == null && !string.IsNullOrWhiteSpace(AppConfig.LastStampImagePath))
+            {
+                selected = _stampItems.FirstOrDefault(i =>
+                    string.Equals(i.Path, AppConfig.LastStampImagePath, StringComparison.OrdinalIgnoreCase));
+            }
+            if (selected == null && _stampItems.Count > 0)
+            {
+                selected = _stampItems[0];
+            }
+            if (selected != null)
+            {
+                selected.IsSelected = true;
+                _selectedStampNames.Add(selected.DisplayName);
+            }
+
+            RebuildStampPickerList();
+        }
+
+        /// <summary>重建印章下拉列表（按显示名排序，恢复当前选中项，刷新显示）。</summary>
+        private void RebuildStampPickerList()
+        {
+            _suppressStampSelection = true;
+            try
+            {
+                comboStampMulti.ItemsSource = _stampItems
+                    .OrderBy(i => i.DisplayName, StringComparer.CurrentCulture)
+                    .ToList();
+                StampPickerItem current = GetPrimaryStampItem();
+                comboStampMulti.SelectedItem = current;
+            }
+            finally
+            {
+                _suppressStampSelection = false;
+            }
+            RefreshStampPickerDisplay();
+        }
+
+        /// <summary>按显示名查找印章条目（大小写不敏感）。</summary>
+        private StampPickerItem FindStampItem(string displayName)
+        {
+            if (string.IsNullOrWhiteSpace(displayName)) return null;
+            return _stampItems.FirstOrDefault(i =>
+                string.Equals(i.DisplayName, displayName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>刷新印章下拉框显示：当前选中章名；空则显示灰色占位“请选择印章”。
+        /// 同时直接同步 ComboBox 内部文本框（IsEditable 模式下 ComboBox.Text 可能被内部逻辑延迟/覆盖）。</summary>
+        private void RefreshStampPickerDisplay()
+        {
+            string text;
+            System.Windows.Media.Brush fg;
+            if (_selectedStampNames.Count == 0)
+            {
+                text = "请选择印章";
+                fg = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x99, 0x99, 0x99));
+                comboStampMulti.ToolTip = null;
+            }
+            else
+            {
+                text = string.Join("；", _selectedStampNames);
+                fg = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x33, 0x33, 0x33));
+                comboStampMulti.ToolTip = text;
+            }
+            comboStampMulti.Text = text;
+            comboStampMulti.Foreground = fg;
+            if (comboStampMulti.Template != null &&
+                comboStampMulti.Template.FindName("PART_EditableTextBox", comboStampMulti)
+                    is System.Windows.Controls.TextBox tb)
+            {
+                tb.Text = text;
+                tb.Foreground = fg;
+            }
+        }
+
+        /// <summary>主章路径（勾选集合第一个）；未勾选时返回空字符串。</summary>
+        private string SelectedStampPath()
+        {
+            StampPickerItem primary = GetPrimaryStampItem();
+            return primary != null ? primary.Path : string.Empty;
+        }
+
+        /// <summary>当前选中章条目 = 选中集合第一个（单选时即当前章）。</summary>
+        private StampPickerItem GetPrimaryStampItem()
+        {
+            foreach (string name in _selectedStampNames)
+            {
+                StampPickerItem it = FindStampItem(name);
+                if (it != null) return it;
+            }
+            return null;
+        }
+
+                /// <summary>当前选中章变化（下拉选择/删除/导入/重命名）后：保存旧章参数，选中章变化时加载新章参数，落盘配置。</summary>
+        private void OnStampSelectionChanged()
+        {
+            StampPickerItem primary = GetPrimaryStampItem();
+            string primaryName = primary != null ? primary.DisplayName : null;
+            bool primaryChanged = !string.Equals(_currentStampFileName, primaryName, StringComparison.OrdinalIgnoreCase);
+
+            // 主章变化时先保存旧主章参数（首次时 _currentStampFileName 为空，跳过）
+            if (primaryChanged)
+            {
+                SaveCurrentStampParams();
+            }
+
+            if (primary == null)
+            {
+                _currentStampFileName = null;
+                AppConfig.LastStampImagePath = "";
+                AppConfig.LastSelectedStampNames = new List<string>();
+                AppConfig.SaveUiConfig();
+                UpdateStampParamOwner();
+                RefreshStampPickerDisplay();
+                return;
+            }
+
+            _currentStampFileName = primary.DisplayName;
+
+            // 仅主章变化时加载该章参数（同主章勾选变化不重载，避免覆盖已自动调整的分割数等）
+            if (primaryChanged)
+            {
+                // 加载主章上次保存的参数（显示名 key；旧完整文件名 key 自动迁移；无记录用默认值）
+                AppConfig.StampParams p = AppConfig.LoadStampParamsMigrate(
+                    primary.DisplayName, Path.GetFileName(primary.Path));
+                ApplyStampParams(p);
+            }
+
+            AppConfig.LastStampImagePath = primary.Path;
+            AppConfig.LastSelectedStampNames = new List<string>(_selectedStampNames);
+            AppConfig.SaveUiConfig();
+            UpdateStampParamOwner();
+            RefreshStampPickerDisplay();
+        }
+
+        /// <summary>更新印章参数区居中提示：当前界面显示的是哪个印章的参数（章名红色突出）。</summary>
+        private void UpdateStampParamOwner()
+        {
+            if (_selectedStampNames.Count == 0)
+            {
+                txtStampParamOwnerPrefix.Text = "未勾选印章";
+                txtStampParamOwnerName.Text = "";
+                return;
+            }
+            txtStampParamOwnerPrefix.Text = "当前参数：";
+            txtStampParamOwnerName.Text = _selectedStampNames[0];
+        }
+
+        /// <summary>当前选中的印章（用于盖章）；选中章文件不存在时返回 null。</summary>
+        private StampPickerItem GetSelectedStampItem()
+        {
+            StampPickerItem primary = GetPrimaryStampItem();
+            if (primary != null && File.Exists(primary.Path))
+            {
+                return primary;
+            }
+            return null;
+        }
+
+        /// <summary>读取某印章的参数：有记忆（显示名或旧文件名 key）则加载并迁移；无记忆则用当前界面参数。</summary>
+        private AppConfig.StampParams LoadParamsForStampItem(StampPickerItem item)
+        {
+            if (item == null) return null;
+            string legacyKey = Path.GetFileName(item.Path);
+            if (AppConfig.HasStampParams(item.DisplayName) || AppConfig.HasStampParams(legacyKey))
+            {
+                return AppConfig.LoadStampParamsMigrate(item.DisplayName, legacyKey);
+            }
+            return GetCurrentStampParamsFromUi();
+        }
+
+        /// <summary>印章下拉框：点击文本框区域打开下拉（IsReadOnly 时文本框拦截了点击，这里补开；箭头交给原生切换）。</summary>
+        private void ComboStamp_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (comboStampMulti.IsDropDownOpen) return;
+            // 若点击落在 ToggleButton（箭头）内，交给原生 ToggleButton 处理；其余区域（文本框）由这里打开
+            System.Windows.DependencyObject src = e.OriginalSource as System.Windows.DependencyObject;
+            while (src != null && !(src is System.Windows.Controls.Primitives.ToggleButton))
+            {
+                src = System.Windows.Media.VisualTreeHelper.GetParent(src);
+            }
+            if (src == null)
+            {
+                comboStampMulti.IsDropDownOpen = true;
+            }
+        }
+
+        /// <summary>印章下拉框（单选）：选中一项 → 设为当前章；为空时仅刷新显示。</summary>
+        private void ComboStamp_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+            if (_suppressStampSelection)
+            {
+                return;
+            }
+            if (comboStampMulti.SelectedItem is StampPickerItem item)
+            {
+                bool changed = !_selectedStampNames.Contains(item.DisplayName);
+                _selectedStampNames.Clear();
+                _selectedStampNames.Add(item.DisplayName);
+                if (changed)
+                {
+                    OnStampSelectionChanged();
+                }
+                else
+                {
+                    RefreshStampPickerDisplay();
+                }
+            }
+            else
+            {
+                RefreshStampPickerDisplay();
+            }
+        }
+
 
         /// <summary>容差输入框启用状态：只有勾选"去除白色背景"时才能编辑。</summary>
         private void UpdateToleranceEnabled()
@@ -810,31 +1186,187 @@ namespace PDFQFZ.WPF
             txtRandomOffsetMm.IsEnabled = on;
         }
 
-        /// <summary>把当前界面的印章参数保存到当前印章名下。</summary>
+        // 盖章渲染四维上限缓存（UI 无直接控件，由弹窗修改、随印章记忆）
+        private int _textureBrightness = 0;
+        private int _textureBlob = 0;
+        private int _textureGradient = 0;
+        private int _textureWhite = 0;
+        private int _textureSpot = 0;
+        private int _textureRadial = 0;
+        private int _textureCast = 0;
+        private TextureSettingsWindow _textureDlg;
+
+        /// <summary>盖章渲染勾选变化：未勾选时"设置参数"按钮置灰（与随机/去除白色背景交互一致）。</summary>
+        private void ChkTextureQuality_Changed(object sender, RoutedEventArgs e)
+        {
+            UpdateTextureEnabled();
+            SaveCurrentStampParams();
+        }
+
+        private void UpdateTextureEnabled()
+        {
+            bool on = chkTextureQuality.IsChecked == true;
+            btnTextureSettings.IsEnabled = on;
+            btnTextureSettings.Content = "盖章渲染";   // 文字始终显示，未勾选时仅置灰（与撤销放置按钮一致）
+        }
+
+        /// <summary>滚动条：点击轨道（非滑块区域）直接跳到点击位置，而不是默认翻一页。</summary>
+        private void ScrollViewer_TrackJump(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            var sv = sender as ScrollViewer;
+            if (sv == null || e.LeftButton != System.Windows.Input.MouseButtonState.Pressed)
+            {
+                return;
+            }
+            var bar = sv.Template.FindName("PART_VerticalScrollBar", sv) as System.Windows.Controls.Primitives.ScrollBar;
+            if (bar == null || !bar.IsVisible)
+            {
+                return;
+            }
+            System.Windows.Point pInBar = e.GetPosition(bar);
+            if (pInBar.X < 0 || pInBar.X > bar.ActualWidth || pInBar.Y < 0 || pInBar.Y > bar.ActualHeight)
+            {
+                return; // 不在滚动条上
+            }
+            var track = bar.Template.FindName("PART_Track", bar) as System.Windows.Controls.Primitives.Track;
+            if (track == null || track.Thumb == null)
+            {
+                return;
+            }
+            System.Windows.Point p = e.GetPosition(track);
+            System.Windows.Point thumbOrigin = track.Thumb.TranslatePoint(new System.Windows.Point(0, 0), track);
+            if (p.Y >= thumbOrigin.Y - 1 && p.Y <= thumbOrigin.Y + track.Thumb.ActualHeight + 1)
+            {
+                return; // 在滑块上：交给默认拖拽
+            }
+            double value = track.ValueFromPoint(p);
+            if (double.IsNaN(value))
+            {
+                return;
+            }
+            sv.ScrollToVerticalOffset(value);
+            e.Handled = true;
+        }
+
+        /// <summary>打开盖章渲染参数弹窗（非模态）：修改实时生效，可边调边在预览区盖章调试；已打开时激活。</summary>
+        private void BtnTextureSettings_Click(object sender, RoutedEventArgs e)
+        {
+            if (_textureDlg != null && _textureDlg.IsVisible)
+            {
+                _textureDlg.Activate();
+                return;
+            }
+            _textureDlg = new TextureSettingsWindow(_textureBrightness, _textureBlob, _textureGradient,
+                _textureWhite, _textureSpot, _textureRadial, _textureCast, OnTextureSettingsChanged)
+            {
+                Owner = this
+            };
+            _textureDlg.Closed += (s2, e2) => _textureDlg = null;
+            // Show 前完成定位，避免先显示默认位置再跳转的闪现：宽固定 500，高用 Measure 期望值（取不到则按 420 估算）
+            _textureDlg.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+            double dlgW = 500;
+            double dlgH = _textureDlg.DesiredSize.Height > 10 ? _textureDlg.DesiredSize.Height : 420;
+            System.Windows.Point tl = leftGrid.PointToScreen(new System.Windows.Point(0, 0));
+            double left = tl.X + (leftGrid.ActualWidth - dlgW) / 2.0;
+            double top = tl.Y + (this.ActualHeight - dlgH) / 2.0;
+            System.Windows.Rect wa = SystemParameters.WorkArea;
+            if (left < wa.Left) left = wa.Left;
+            if (top < wa.Top) top = wa.Top;
+            if (left + dlgW > wa.Right) left = wa.Right - dlgW;
+            if (top + dlgH > wa.Bottom) top = wa.Bottom - dlgH;
+            _textureDlg.Left = left;
+            _textureDlg.Top = top;
+            _textureDlg.Show();
+        }
+
+        /// <summary>弹窗参数实时变化：更新当前章记忆，并把预览中已放置的章同步为新参数（种子不变），刷新预览。</summary>
+        private void OnTextureSettingsChanged(int brightness, int blob, int gradient, int white,
+            int spot, int radial, int cast)
+        {
+            _textureBrightness = brightness;
+            _textureBlob = blob;
+            _textureGradient = gradient;
+            _textureWhite = white;
+            _textureSpot = spot;
+            _textureRadial = radial;
+            _textureCast = cast;
+            SaveCurrentStampParams();
+            if (!string.IsNullOrWhiteSpace(sourcePath))
+            {
+                foreach (int page in stampPlacements.DistinctPages(sourcePath))
+                {
+                    foreach (StampPlacement placement in stampPlacements.ForPage(sourcePath, page))
+                    {
+                        placement.TextureBrightness = brightness;
+                        placement.TextureBlob = blob;
+                        placement.TextureGradient = gradient;
+                        placement.TextureWhite = white;
+                        placement.TextureSpot = spot;
+                        placement.TextureRadial = radial;
+                        placement.TextureCast = cast;
+                        // 强度系数与分布种子固定于本章，调参只更新参数上限 → 分布稳定、强度平滑变化
+                    }
+                }
+                RefreshPreviewOverlays();
+            }
+        }
+
+        /// <summary>盖章渲染分布种子：每枚章盖章时独立随机（决定斑块/斑点位置，固定于本章）。</summary>
+        private int NewTextureSeed()
+        {
+            lock (StampRandomGenerator)
+            {
+                return StampRandomGenerator.Next(1, 1000000);
+            }
+        }
+
+        /// <summary>盖章渲染强度系数：每枚章盖章时随机 0.85~1.15（参数主控、±15% 微调，章与章略有差异）。</summary>
+        private float NewTextureK()
+        {
+            lock (StampRandomGenerator)
+            {
+                return (float)(0.85 + 0.30 * StampRandomGenerator.NextDouble());
+            }
+        }
+
+        /// <summary>从界面控件读取当前印章参数快照（MaxSplit 遵循“未手动修改不更新记忆”规则）。</summary>
+        private AppConfig.StampParams GetCurrentStampParamsFromUi()
+        {
+            return new AppConfig.StampParams
+            {
+                Size = TryParseInt(txtStampSize.Text, 1, 500, out int s) ? s : 40,
+                Rotation = TryParseInt(txtRotation.Text, -360, 360, out int r) ? r : 0,
+                RotationHandle = comboRotationHandle.SelectedIndex >= 0 ? comboRotationHandle.SelectedIndex : 0,
+                Opacity = TryParseInt(txtOpacity.Text, 0, 100, out int o) ? o : 60,
+                RandomParams = chkRandomParams.IsChecked == true,
+                RandomRange = TryParseInt(txtRandomRange.Text, 0, 90, out int rr) ? rr : 5,
+                RandomOffsetMm = TryParseInt(txtRandomOffsetMm.Text, 0, 500, out int ro) ? ro : 5,
+                RemoveWhite = chkRemoveWhite.IsChecked == true,
+                Tolerance = TryParseInt(txtTolerance.Text, 0, 50, out int t) ? t : 20,
+                TextureQuality = chkTextureQuality.IsChecked == true,
+                TextureBrightness = _textureBrightness,
+                TextureBlob = _textureBlob,
+                TextureGradient = _textureGradient,
+                TextureWhite = _textureWhite,
+                TextureSpot = _textureSpot,
+                TextureRadial = _textureRadial,
+                TextureCast = _textureCast,
+                MaxSplit = _maxSplitUserModified
+                    ? (TryParseInt(txtMaxSplit.Text, 1, 10000, out int ms) ? ms : 500)
+                    : -1   // 未手动修改：-1 表示不更新印章记忆中的分割数
+            };
+        }
+
+        /// <summary>把当前界面的印章参数保存到当前主章名下（显示名 key）。</summary>
         private void SaveCurrentStampParams()
         {
-            if (string.IsNullOrEmpty(_currentStampFileName))
+            if (_suppressStampParamSave || string.IsNullOrEmpty(_currentStampFileName))
             {
                 return;
             }
             try
             {
-                AppConfig.StampParams p = new AppConfig.StampParams
-                {
-                    Size = TryParseInt(txtStampSize.Text, 1, 500, out int s) ? s : 40,
-                    Rotation = TryParseInt(txtRotation.Text, -360, 360, out int r) ? r : 0,
-                    RotationHandle = comboRotationHandle.SelectedIndex >= 0 ? comboRotationHandle.SelectedIndex : 0,
-                    Opacity = TryParseInt(txtOpacity.Text, 0, 100, out int o) ? o : 60,
-                    RandomParams = chkRandomParams.IsChecked == true,
-                    RandomRange = TryParseInt(txtRandomRange.Text, 0, 90, out int rr) ? rr : 5,
-                    RandomOffsetMm = TryParseInt(txtRandomOffsetMm.Text, 0, 500, out int ro) ? ro : 5,
-                    RemoveWhite = chkRemoveWhite.IsChecked == true,
-                    Tolerance = TryParseInt(txtTolerance.Text, 0, 50, out int t) ? t : 20,
-                    MaxSplit = _maxSplitUserModified
-                        ? (TryParseInt(txtMaxSplit.Text, 1, 10000, out int ms) ? ms : 500)
-                        : -1   // 未手动修改：-1 表示不更新印章记忆中的分割数
-                };
-                AppConfig.SaveStampParams(_currentStampFileName, p);
+                AppConfig.SaveStampParams(_currentStampFileName, GetCurrentStampParamsFromUi());
             }
             catch
             {
@@ -873,6 +1405,7 @@ namespace PDFQFZ.WPF
             {
                 return;
             }
+            _suppressStampParamSave = true;
             txtStampSize.Text = p.Size.ToString();
             txtRotation.Text = p.Rotation.ToString();
             comboRotationHandle.SelectedIndex = (p.RotationHandle >= 0 && p.RotationHandle <= 1) ? p.RotationHandle : 0;
@@ -883,6 +1416,15 @@ namespace PDFQFZ.WPF
             UpdateRandomEnabled();
             chkRemoveWhite.IsChecked = p.RemoveWhite;
             txtTolerance.Text = p.Tolerance.ToString();
+            chkTextureQuality.IsChecked = p.TextureQuality;
+            _textureBrightness = p.TextureBrightness;
+            _textureBlob = p.TextureBlob;
+            _textureGradient = p.TextureGradient;
+            _textureWhite = p.TextureWhite;
+            _textureSpot = p.TextureSpot;
+            _textureRadial = p.TextureRadial;
+            _textureCast = p.TextureCast;
+            UpdateTextureEnabled();
             if (p.MaxSplit > 0)
             {
                 _suppressMaxSplitTrack = true;
@@ -891,6 +1433,7 @@ namespace PDFQFZ.WPF
                 _suppressMaxSplitTrack = false;
             }
             UpdateToleranceEnabled();
+            _suppressStampParamSave = false;
         }
 
         private void OnSourceDrop(object sender, DragEventArgs e)
@@ -940,10 +1483,7 @@ namespace PDFQFZ.WPF
             autoStampOperations.Clear();
             ClearOverlayImages();
             ReleasePdfResources();
-            previewPlaceholderViewbox.Visibility = Visibility.Visible;
-            previewImage.Visibility = Visibility.Collapsed;
-            overlayCanvas.Visibility = Visibility.Collapsed;
-            UpdatePageInfo();
+            ShowBlankDebugPage();
             comboCurrentFile.Items.Clear();
             txtFileTotalPages.Text = "";
             btnUndoAuto.IsEnabled = false;
@@ -952,12 +1492,86 @@ namespace PDFQFZ.WPF
             UpdatePlacementOperationHint();
         }
 
-        private void LoadPdf(string path)
+        /// <summary>无 PDF 时加载内置调试 PDF（A4 白页 + "请上传 PDF 文件"），走真实 pdfium 渲染链路，
+        /// 预览区未加载用户文件也可盖章、缩放、拖动，用于调试盖章渲染参数。
+        /// 调试页不进入用户文件列表，不会参与输出；调试章与正常章同用 stampPlacements（加载新文件/重置时自动清空）。</summary>
+        private void ShowBlankDebugPage()
         {
             try
             {
-                stampPlacements.Clear();
-                autoStampOperations.Clear();
+                string debugPath = ExtractDebugPdf();
+                if (string.IsNullOrEmpty(debugPath) || !File.Exists(debugPath))
+                {
+                    _debugPageActive = false;
+                    previewPlaceholderViewbox.Visibility = Visibility.Visible;
+                    return;
+                }
+                _debugPageActive = true;
+                ReleasePdfResources();
+                pdfRenderer = PdfiumDocumentRenderer.Open(debugPath);
+                pageCount = pdfRenderer.PageCount;
+                pageCache = new PageCache<System.Drawing.Bitmap>(i => pdfRenderer.RenderPage(i, RenderDpi));
+                currentPageIndex = 0;
+                sourcePath = debugPath;
+                zoomPercent = 0;
+                zoomInitialized = false;
+                previewPlaceholderViewbox.Visibility = Visibility.Collapsed;
+                RelayoutPreview();
+                UpdatePageInfo();
+                UpdatePlacementOperationHint();
+            }
+            catch
+            {
+                _debugPageActive = false;
+                previewPlaceholderViewbox.Visibility = Visibility.Visible;
+                previewImage.Visibility = Visibility.Collapsed;
+                overlayCanvas.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        /// <summary>从嵌入资源提取内置调试 PDF 到 %TEMP%\PDFQFZ\debug_page.pdf（已存在则跳过）。</summary>
+        private string ExtractDebugPdf()
+        {
+            try
+            {
+                string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "PDFQFZ");
+                Directory.CreateDirectory(dir);
+                string path = System.IO.Path.Combine(dir, "debug_page.pdf");
+                if (File.Exists(path))
+                {
+                    return path;
+                }
+                using (var stream = System.Reflection.Assembly.GetExecutingAssembly()
+                    .GetManifestResourceStream("PDFQFZ.WPF.assets.debug_page.pdf"))
+                {
+                    if (stream == null)
+                    {
+                        return null;
+                    }
+                    using (var fs = File.Create(path))
+                    {
+                        stream.CopyTo(fs);
+                    }
+                }
+                return path;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void LoadPdf(string path, bool keepStampData = false)
+        {
+            try
+            {
+                // 目录模式内切换“当前文件”：保留各文件已放置的印章数据（多文件按文字盖章后切换预览仍需显示）；
+                // 拖入新源文件/新目录（默认 false）：全新任务，清空所有印章记录。
+                if (!keepStampData)
+                {
+                    stampPlacements.Clear();
+                    autoStampOperations.Clear();
+                }
                 ClearOverlayImages();
                 ReleasePdfResources();
                 logText.Text = InitialHelpText;   // 拖入新文件：预览与日志区都恢复初始帮助说明
@@ -981,10 +1595,13 @@ namespace PDFQFZ.WPF
                 }
                 suppressCurrentFileEvent = false;
                 txtFileTotalPages.Text = "共 " + pageCount + " 页";
+                _debugPageActive = false;
                 previewPlaceholderViewbox.Visibility = Visibility.Collapsed;
                 previewImage.Visibility = Visibility.Visible;
                 overlayCanvas.Visibility = Visibility.Visible;
-                btnUndoAuto.IsEnabled = false;
+                btnUndoAuto.IsEnabled = keepStampData
+                    ? autoStampOperations.Any(o => string.Equals(o.FilePath, sourcePath, StringComparison.OrdinalIgnoreCase))
+                    : false;
                 zoomPercent = 0;
                 zoomInitialized = false;
                 UpdatePageInfo();
@@ -1605,6 +2222,12 @@ namespace PDFQFZ.WPF
                             Tag = placement.Id,
                             Cursor = Cursors.Hand
                         };
+                        // 随机旋转：绘制层中心旋转（布局尺寸恒定=SizeMm，预览与输出角度一致，命中检测按旋转后区域）
+                        if (placement.RandomRotation && placement.Rotation != 0)
+                        {
+                            image.RenderTransformOrigin = new System.Windows.Point(0.5, 0.5);
+                            image.RenderTransform = new RotateTransform(placement.Rotation);
+                        }
                         double overlayLeft = placement.CenterRatio
                             ? dispW * placement.X - overlaySize.Width / 2.0
                             : (dispW - overlaySize.Width) * placement.X;
@@ -1731,7 +2354,8 @@ namespace PDFQFZ.WPF
 
         private void OnPreviewCanvasMouseDown(object sender, MouseButtonEventArgs e)
         {
-            if (pdfRenderer == null || isGenerating) return;
+            if (isGenerating) return;
+            if (pdfRenderer == null && !_debugPageActive) return;
             if (e.LeftButton != MouseButtonState.Pressed) return;
 
             // 按下时记录鼠标固定起点（屏幕坐标，对齐原版 Control.MousePosition）与滚动偏移快照
@@ -1792,7 +2416,8 @@ namespace PDFQFZ.WPF
         /// <summary>右键删除印章：命中已有印章则删除（批量印章触发原有的三选项弹窗），空白区域不做操作。</summary>
         private void OnPreviewCanvasMouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (pdfRenderer == null || isGenerating) return;
+            if (isGenerating) return;
+            if (pdfRenderer == null && !_debugPageActive) return;
             var canvas = (System.Windows.Controls.Canvas)sender;
             var clickedImage = HitTestStampImage(e.GetPosition(canvas), canvas);
             if (clickedImage != null)
@@ -1863,24 +2488,13 @@ namespace PDFQFZ.WPF
 
         private static readonly Random StampRandomGenerator = new Random();
 
-        /// <summary>读取随机位移距离（mm）：未勾选"随机"或非法值返回 0。</summary>
-        private float GetRandomOffsetMmValue()
-        {
-            if (chkRandomParams.IsChecked != true) return 0f;
-            float.TryParse(txtRandomOffsetMm.Text, out float v);
-            if (float.IsNaN(v) || float.IsInfinity(v)) return 0f;
-            if (v < 0f) v = 0f;
-            if (v > 500f) v = 500f;
-            return v;
-        }
-
         /// <summary>生成随机位移向量（mm）：方向任意（0~360°）、距离 0~maxMm 均匀随机。
-        /// 未勾选"随机"或 maxMm&lt;=0 时返回零位移。随机值在放置时生成并固定，预览=输出。</summary>
-        private void GetRandomOffset(float maxMm, out float dxMm, out float dyMm)
+        /// randomOn=false 或 maxMm&lt;=0 时返回零位移。随机值在放置时生成并固定，预览=输出。</summary>
+        private void GetRandomOffset(bool randomOn, float maxMm, out float dxMm, out float dyMm)
         {
             dxMm = 0f;
             dyMm = 0f;
-            if (chkRandomParams.IsChecked != true || maxMm <= 0f) return;
+            if (!randomOn || maxMm <= 0f) return;
             lock (StampRandomGenerator)
             {
                 double angle = StampRandomGenerator.NextDouble() * 2.0 * Math.PI;
@@ -1890,20 +2504,14 @@ namespace PDFQFZ.WPF
             }
         }
 
-        /// <summary>计算含随机旋转的最终角度：勾选盖章随机旋转时，在基础角度上叠加 ±range° 的随机值。</summary>
-        private int GetEffectiveRotation(int baseRotation)
+        /// <summary>计算含随机旋转的最终角度：randomOn 时在基础角度上叠加 ±range° 的随机值。</summary>
+        private int GetEffectiveRotation(int baseRotation, bool randomOn, int range)
         {
-            if (chkRandomParams.IsChecked == true)
+            if (randomOn && range > 0)
             {
-                int range = 5;
-                int.TryParse(txtRandomRange.Text, out range);
-                if (range < 0) range = 0;
-                if (range > 0)
+                lock (StampRandomGenerator)
                 {
-                    lock (StampRandomGenerator)
-                    {
-                        return baseRotation + StampRandomGenerator.Next(-range, range + 1);
-                    }
+                    return baseRotation + StampRandomGenerator.Next(-range, range + 1);
                 }
             }
             return baseRotation;
@@ -1911,26 +2519,48 @@ namespace PDFQFZ.WPF
 
         private void AddPreviewStamp(float px, float py, string stampPath, int stampType, int pageNumber = 0)
         {
-            int sizeMm = GetSizeValue();
-            int currentOpacity = GetOpacityValue();
-            int currentRotation = GetRotationValue();
-            int whiteTolerance = GetToleranceValue();
-            bool useWhiteTransparency = chkRemoveWhite.IsChecked == true;
-            bool useOriginalRotationCrop = comboRotationHandle.SelectedIndex == 0;
+            // 使用当前选中的印章，用该章记忆的参数（无记忆则用界面当前值）
+            StampPickerItem pick = GetSelectedStampItem();
+            if (pick == null) return;
+            AppConfig.StampParams sp = LoadParamsForStampItem(pick);
+            if (sp == null) return;
+            int sizeMm = sp.Size;
+            int currentOpacity = sp.Opacity;
+            int currentRotation = sp.Rotation;
+            int whiteTolerance = sp.Tolerance;
+            bool useWhiteTransparency = sp.RemoveWhite;
+            bool useOriginalRotationCrop = sp.RotationHandle == 0;
+            bool randomOn = sp.RandomParams;
+            int randomRange = sp.RandomRange;
 
             if (stampType == SpecifiedPageStampType && specifiedRangeFirstClickPending &&
                 specifiedPageRange != null && IsAtSpecifiedEndPage())
             {
-                float maxOffsetMm = GetRandomOffsetMmValue();
+                float maxOffsetMm = sp.RandomOffsetMm;
                 activeSpecifiedBatchId = stampPlacements.CreateBatchId();
                 for (int page = specifiedPageRange.StartPage; page <= specifiedPageRange.EndPage; page++)
                 {
-                    // 每个页面在放置时各自随机一次位移（任意方向 0~maxOffsetMm），随机值固定进该页印章
-                    GetRandomOffset(maxOffsetMm, out float dxMm, out float dyMm);
-                    stampPlacements.Add(sourcePath, page, px, py, stampPath, sizeMm,
-                        currentOpacity, GetEffectiveRotation(currentRotation), whiteTolerance, useWhiteTransparency,
-                        useOriginalRotationCrop, activeSpecifiedBatchId, centerRatio: true,
-                        offsetXmm: dxMm, offsetYmm: dyMm);
+                    // 每个页面在放置时各自随机一次印章与位移（随机值固定进该页印章）
+                    StampPickerItem batchPick = GetSelectedStampItem();
+                    if (batchPick == null) break;
+                    AppConfig.StampParams batchSp = LoadParamsForStampItem(batchPick);
+                    if (batchSp == null) break;
+                    GetRandomOffset(batchSp.RandomParams, batchSp.RandomOffsetMm, out float dxMm, out float dyMm);
+                    stampPlacements.Add(sourcePath, page, px, py, batchPick.Path, batchSp.Size,
+                        batchSp.Opacity, GetEffectiveRotation(batchSp.Rotation, batchSp.RandomParams, batchSp.RandomRange),
+                        batchSp.Tolerance, batchSp.RemoveWhite,
+                        batchSp.RotationHandle == 0, randomRotation: batchSp.RandomParams && batchSp.RandomRange > 0,
+                        batchId: activeSpecifiedBatchId, centerRatio: true,
+                        offsetXmm: dxMm, offsetYmm: dyMm,
+                        textureEnabled: batchSp.TextureQuality, textureSeed: NewTextureSeed(),
+                        textureKb: NewTextureK(), textureKblob: NewTextureK(), textureKgrad: NewTextureK(),
+                        textureKwhite: NewTextureK(), textureKspot: NewTextureK(),
+                        textureKradial: NewTextureK(), textureKcast: NewTextureK(),
+                        textureBrightness: batchSp.TextureBrightness, textureBlob: batchSp.TextureBlob,
+                        textureGradient: batchSp.TextureGradient, textureWhite: batchSp.TextureWhite,
+                        textureSpot: batchSp.TextureSpot,
+                        textureRadial: batchSp.TextureRadial,
+                        textureCast: batchSp.TextureCast);
                 }
                 specifiedRangeFirstClickPending = false;
                 activeSpecifiedBatchId = 0;
@@ -1940,12 +2570,21 @@ namespace PDFQFZ.WPF
                 return;
             }
 
-            GetRandomOffset(GetRandomOffsetMmValue(), out float mdxMm, out float mdyMm);
+            GetRandomOffset(randomOn, sp.RandomOffsetMm, out float mdxMm, out float mdyMm);
             int targetPage = pageNumber > 0 ? pageNumber : currentPageIndex + 1;
-            stampPlacements.Add(sourcePath, targetPage, px, py, stampPath, sizeMm,
-                currentOpacity, GetEffectiveRotation(currentRotation), whiteTolerance, useWhiteTransparency,
-                useOriginalRotationCrop, 0, centerRatio: true,
-                offsetXmm: mdxMm, offsetYmm: mdyMm);
+            stampPlacements.Add(sourcePath, targetPage, px, py, pick.Path, sizeMm,
+                currentOpacity, GetEffectiveRotation(currentRotation, randomOn, randomRange), whiteTolerance, useWhiteTransparency,
+                useOriginalRotationCrop, randomRotation: randomOn && randomRange > 0, batchId: 0, centerRatio: true,
+                offsetXmm: mdxMm, offsetYmm: mdyMm,
+                textureEnabled: sp.TextureQuality, textureSeed: NewTextureSeed(),
+                textureKb: NewTextureK(), textureKblob: NewTextureK(), textureKgrad: NewTextureK(),
+                textureKwhite: NewTextureK(), textureKspot: NewTextureK(),
+                textureKradial: NewTextureK(), textureKcast: NewTextureK(),
+                textureBrightness: sp.TextureBrightness, textureBlob: sp.TextureBlob,
+                textureGradient: sp.TextureGradient, textureWhite: sp.TextureWhite,
+                textureSpot: sp.TextureSpot,
+                textureRadial: sp.TextureRadial,
+                textureCast: sp.TextureCast);
         }
 
         /// <summary>判断当前视图是否正显示指定范围盖章的最后一页（单页=当前页；双页=左页或右页）。</summary>
@@ -1982,43 +2621,118 @@ namespace PDFQFZ.WPF
                     return;
                 }
 
-                List<PdfTextMatch> allMatches;
-                using (PdfTextSearcher searcher = new PdfTextSearcher(sourcePath))
+                // 目录模式多文件 → 询问是否对所有文件按文字盖章
+                if (currentSourceIsDirectory && sourceFiles != null && sourceFiles.Length > 1)
                 {
-                    if (!searcher.HasAnyText())
+                    MessageBoxResult choice = MessageBox.Show(
+                        string.Format("当前目录下共有 {0} 个 PDF 文件。\n\n“是”：对所有文件都按文字放置印章\n“否”：仅对当前文件放置\n“取消”：不放置", sourceFiles.Length),
+                        "按文字盖章",
+                        MessageBoxButton.YesNoCancel,
+                        MessageBoxImage.Question);
+                    if (choice == MessageBoxResult.Cancel)
                     {
-                        MessageBox.Show("图片型 PDF 无法搜索到文字，无法放置印章", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                        SetOperationHint("已取消按文字放置印章。");
                         return;
                     }
-                    allMatches = searcher.FindAll(keyword);
+                    if (choice == MessageBoxResult.Yes)
+                    {
+                        int okCount = 0;
+                        int totalAdded = 0;
+                        var skipped = new List<string>();
+                        foreach (string f in sourceFiles)
+                        {
+                            AutoPlaceFileResult r = ApplyAutoPlaceToFile(f, keyword, false);
+                            if (r.Cancelled)
+                            {
+                                AppendLog(string.Format("按文字盖章（全部文件）已中止：已处理 {0} 个文件，共新增 {1} 处。", okCount, totalAdded));
+                                SetOperationHint("按文字盖章已中止，详见下方日志");
+                                RefreshPreviewOverlays();
+                                return;
+                            }
+                            if (r.Success)
+                            {
+                                okCount++;
+                                totalAdded += r.Added;
+                            }
+                            else
+                            {
+                                skipped.Add(r.SkipReason + "：" + Path.GetFileName(f));
+                            }
+                        }
+                        if (skipped.Count > 0)
+                        {
+                            AppendLog(string.Format(
+                                "按文字盖章（全部文件）完成：{0} 个文件已放置，共新增 {1} 处；{2} 个文件未处理：{3}",
+                                okCount, totalAdded, skipped.Count, string.Join("；", skipped)));
+                        }
+                        else
+                        {
+                            AppendLog(string.Format("按文字盖章（全部文件）完成：{0} 个文件已放置，共新增 {1} 处。", okCount, totalAdded));
+                        }
+                        SetOperationHint(string.Format("按文字盖章完成：{0} 个文件已放置，详见下方日志", okCount));
+                        RefreshPreviewOverlays();
+                        return;
+                    }
                 }
 
-                if (allMatches == null || allMatches.Count == 0)
+                ApplyAutoPlaceToFile(sourcePath, keyword, true);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("放置印章失败：" + ex.Message, "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        /// <summary>对单个 PDF 执行按文字盖章（搜索 → 上下文过滤 → 放置）。失败是否弹窗由 showFailureDialog 控制
+        /// （单文件弹窗提示；多文件汇总不弹窗，结果由调用方汇总到日志）。</summary>
+        private AutoPlaceFileResult ApplyAutoPlaceToFile(string path, string keyword, bool showFailureDialog)
+        {
+            List<PdfTextMatch> allMatches;
+            using (PdfTextSearcher searcher = new PdfTextSearcher(path))
+            {
+                if (!searcher.HasAnyText())
+                {
+                    if (showFailureDialog)
+                    {
+                        MessageBox.Show("图片型 PDF 无法搜索到文字，无法放置印章", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
+                    return new AutoPlaceFileResult { Success = false, SkipReason = "图片型 PDF 无文字层" };
+                }
+                allMatches = searcher.FindAll(keyword);
+            }
+
+            if (allMatches == null || allMatches.Count == 0)
+            {
+                if (showFailureDialog)
                 {
                     MessageBox.Show("没找到您指定的盖章文字", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-                    return;
                 }
+                return new AutoPlaceFileResult { Success = false, SkipReason = "未找到指定文字" };
+            }
 
-                // 解析上下文过滤参数（未勾选则不过滤）
-                bool useContextFilter = chkContextFilter.IsChecked == true;
-                string[] contextKeywords = useContextFilter ? ParseContextKeywords(txtContextKeywords.Text) : new string[0];
-                int contextRange = ParseContextRange(txtContextRange.Text);
-                bool requireAll = comboContextMatch.SelectedIndex == 1;
+            // 解析上下文过滤参数（未勾选则不过滤）
+            bool useContextFilter = chkContextFilter.IsChecked == true;
+            string[] contextKeywords = useContextFilter ? ParseContextKeywords(txtContextKeywords.Text) : new string[0];
+            int contextRange = ParseContextRange(txtContextRange.Text);
+            bool requireAll = comboContextMatch.SelectedIndex == 1;
+            bool excludeSpaces = chkContextExcludeSpaces.IsChecked == true;
 
-                List<PdfTextMatch> matches;
-                if (contextKeywords.Length == 0)
+            List<PdfTextMatch> matches;
+            if (contextKeywords.Length == 0)
+            {
+                // 关键词留空 → 不过滤，全部盖
+                matches = allMatches;
+            }
+            else
+            {
+                // 有关键词 → 二次搜索并过滤
+                using (PdfTextSearcher searcher = new PdfTextSearcher(path))
                 {
-                    // 关键词留空 → 不过滤，全部盖
-                    matches = allMatches;
+                    matches = searcher.FindAll(keyword, contextKeywords, contextRange, requireAll, excludeSpaces);
                 }
-                else
+                if (matches == null || matches.Count == 0)
                 {
-                    // 有关键词 → 二次搜索并过滤
-                    using (PdfTextSearcher searcher = new PdfTextSearcher(sourcePath))
-                    {
-                        matches = searcher.FindAll(keyword, contextKeywords, contextRange, requireAll);
-                    }
-                    if (matches == null || matches.Count == 0)
+                    if (showFailureDialog)
                     {
                         string kwDisplay = string.Join("，", contextKeywords);
                         string modeDisplay = requireAll ? "全部关键词（且）" : "任一关键词（或）";
@@ -2026,138 +2740,160 @@ namespace PDFQFZ.WPF
                             string.Format("找到了 {0} 处“{1}”，但附近都没有指定关键词，未盖章。\n\n关键词（共 {2} 个）：{3}\n匹配模式：{4}",
                                 allMatches.Count, keyword, contextKeywords.Length, kwDisplay, modeDisplay),
                             "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-                        return;
                     }
+                    return new AutoPlaceFileResult { Success = false, SkipReason = "附近无指定关键词" };
                 }
+            }
 
-                // 相同文字已放置过 → 确认后撤销旧批、按最新参数重盖
-                int batchId = 0;
-                bool appendToExistingBatch = false;
-                AutoStampOperation existingOp = autoStampOperations.LastOrDefault(
-                    o => string.Equals(o.Keyword, keyword, StringComparison.Ordinal));
-                if (existingOp != null)
+            // 相同文字已放置过 → 确认后撤销旧批、按最新参数重盖（每个文件独立判断）
+            int batchId = 0;
+            bool appendToExistingBatch = false;
+            AutoStampOperation existingOp = autoStampOperations.LastOrDefault(
+                o => string.Equals(o.Keyword, keyword, StringComparison.Ordinal)
+                    && string.Equals(o.FilePath, path, StringComparison.OrdinalIgnoreCase));
+            if (existingOp != null)
+            {
+                MessageBoxResult confirm = MessageBox.Show(
+                    string.Format("已用“{0}”放置过印章。\n\n点击“是”：删除上次的印章，重新放置\n点击“否”：保留上次的印章，只盖新增的位置\n点击“取消”：不放置", keyword),
+                    "重复放置确认",
+                    MessageBoxButton.YesNoCancel,
+                    MessageBoxImage.Question);
+                if (confirm == MessageBoxResult.Cancel)
                 {
-                    MessageBoxResult confirm = MessageBox.Show(
-                        string.Format("已用“{0}”放置过印章。\n\n点击“是”：删除上次的印章，重新放置\n点击“否”：保留上次的印章，只盖新增的位置\n点击“取消”：不放置", keyword),
-                        "重复放置确认",
-                        MessageBoxButton.YesNoCancel,
-                        MessageBoxImage.Question);
-                    if (confirm == MessageBoxResult.Cancel)
-                    {
-                        SetOperationHint("已取消放置，保留原有印章。");
-                        return;
-                    }
-                    if (confirm == MessageBoxResult.Yes)
-                    {
-                        stampPlacements.RemoveBatch(sourcePath, existingOp.BatchId);
-                        autoStampOperations.Remove(existingOp);
-                        batchId = stampPlacements.CreateBatchId();
-                    }
-                    else
-                    {
-                        // 选"否"：归到旧批次，只盖上次没盖过的新位置
-                        batchId = existingOp.BatchId;
-                        appendToExistingBatch = true;
-                    }
+                    SetOperationHint("已取消放置，保留原有印章。");
+                    return new AutoPlaceFileResult { Success = false, Cancelled = true };
                 }
-                else
+                if (confirm == MessageBoxResult.Yes)
                 {
+                    stampPlacements.RemoveBatch(path, existingOp.BatchId);
+                    autoStampOperations.Remove(existingOp);
                     batchId = stampPlacements.CreateBatchId();
                 }
-
-                int sizeMm = GetSizeValue();
-                int currentOpacity = GetOpacityValue();
-                int currentRotation = GetRotationValue();
-                int whiteTolerance = GetToleranceValue();
-                bool useWhiteTransparency = chkRemoveWhite.IsChecked == true;
-                bool useOriginalRotationCrop = comboRotationHandle.SelectedIndex == 0;
-
-                System.Drawing.Size overlaySize = CalculateCurrentOverlaySize();
-                double previewW = Math.Max(1, displayWidth);
-                double previewH = Math.Max(1, displayHeight);
-                float ratioW = (float)(overlaySize.Width / previewW);
-                float ratioH = (float)(overlaySize.Height / previewH);
-
-                int addedCount = 0;
-                var addedPages = new List<int>();
-                float maxOffsetMm = GetRandomOffsetMmValue();
-                foreach (PdfTextMatch match in matches)
-                {
-                    AutoStampPositionResult pos = AutoStampPositionCalculator.Calculate(
-                        match.CenterX, match.CenterY, match.PageWidth, match.PageHeight, ratioW, ratioH);
-
-                    // 选"否"追加模式：旧批次同页已有坐标接近的印章则跳过，不重复叠加
-                    if (appendToExistingBatch)
-                    {
-                        bool alreadyPlaced = stampPlacements.ForPage(sourcePath, match.PageIndex + 1)
-                            .Any(p => p.BatchId == batchId
-                                && Math.Abs(p.X - pos.Px) < 0.03
-                                && Math.Abs(p.Y - pos.Py) < 0.03);
-                        if (alreadyPlaced) continue;
-                    }
-
-                    // 每个匹配在放置时各自随机一次位移（任意方向 0~maxOffsetMm），随机值固定进该印章
-                    GetRandomOffset(maxOffsetMm, out float dxMm, out float dyMm);
-                    stampPlacements.Add(sourcePath, match.PageIndex + 1, pos.Px, pos.Py, stampPath, sizeMm,
-                        currentOpacity, GetEffectiveRotation(currentRotation), whiteTolerance, useWhiteTransparency,
-                        useOriginalRotationCrop, batchId,
-                        offsetXmm: dxMm, offsetYmm: dyMm);
-                    addedCount++;
-                    addedPages.Add(match.PageIndex + 1);
-                }
-
-                if (appendToExistingBatch && addedCount == 0)
-                {
-                    AppendLog(string.Format("按文字盖章完成：关键词“{0}”，本次搜索到 {1} 处，位置上次都已盖过，无新增印章。", keyword, matches.Count));
-                    SetOperationHint("按文字盖章完成：无新增，详见下方日志");
-                    RefreshPreviewOverlays();
-                    return;
-                }
-
-                if (!appendToExistingBatch)
-                {
-                    autoStampOperations.Add(new AutoStampOperation { Keyword = keyword, BatchId = batchId });
-                }
-                btnUndoAuto.IsEnabled = true;
-
-                // 成功找到并完成盖章的文字才记入历史
-                AppConfig.RecordAutoStampKeyword(keyword);
-
-                RefreshPreviewOverlays();
-
-                // 页码列表（去重排序，全部列出）
-                string pageDisplay = "第" + string.Join("、", addedPages.Distinct().OrderBy(p => p)) + "页";
-
-                if (appendToExistingBatch)
-                {
-                    // 追加模式：详细结果写左侧，右侧简短提示
-                    int skippedCount = matches.Count - addedCount;
-                    AppendLog(string.Format(
-                        "按文字盖章完成：关键词“{0}”，本次搜索到 {1} 处，新增盖了 {2} 个，已在 {3} 盖章，其余 {4} 处上次已盖过。右键单个章可删除，或点击“撤销放置”逐步撤销。",
-                        keyword, matches.Count, addedCount, pageDisplay, skippedCount));
-                    SetOperationHint(string.Format("按文字盖章完成：新增 {0} 个，详见下方日志", addedCount));
-                }
-                else if (contextKeywords.Length > 0 && matches.Count < allMatches.Count)
-                {
-                    string kwDisplay = string.Join("，", contextKeywords);
-                    string modeDisplay = requireAll ? "全部关键词（且）" : "任一关键词（或）";
-                    AppendLog(string.Format(
-                        "按文字盖章完成：关键词“{0}”，共找到 {1} 处，其中 {2} 处附近有关键词，已在 {3} 盖章。关键词（共 {4} 个）：{5} | 匹配模式：{6}。右键单个章可删除，或点击“撤销放置”逐步撤销。",
-                        keyword, allMatches.Count, matches.Count, pageDisplay, contextKeywords.Length, kwDisplay, modeDisplay));
-                    SetOperationHint(string.Format("按文字盖章完成：{0} 处，详见下方日志", matches.Count));
-                }
                 else
                 {
-                    AppendLog(string.Format(
-                        "按文字盖章完成：关键词“{0}”，共找到 {1} 处，已在 {2} 盖章。右键单个章可删除，或点击“撤销放置”逐步撤销。",
-                        keyword, matches.Count, pageDisplay));
-                    SetOperationHint(string.Format("按文字盖章完成：{0} 处，详见下方日志", matches.Count));
+                    // 选"否"：归到旧批次，只盖上次没盖过的新位置
+                    batchId = existingOp.BatchId;
+                    appendToExistingBatch = true;
                 }
             }
-            catch (Exception ex)
+            else
             {
-                MessageBox.Show("放置印章失败：" + ex.Message, "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                batchId = stampPlacements.CreateBatchId();
             }
+
+            System.Drawing.Size overlaySize = CalculateCurrentOverlaySize();
+            double previewW = Math.Max(1, displayWidth);
+            double previewH = Math.Max(1, displayHeight);
+            float ratioW = (float)(overlaySize.Width / previewW);
+            float ratioH = (float)(overlaySize.Height / previewH);
+
+            // 中心偏移（随搜索文字记忆，mm）：作为该次盖章的基准偏移，与随机位移叠加
+            bool coEnabled;
+            float coBaseX, coBaseY;
+            AppConfig.GetCenterOffsetForKeyword(keyword, out coEnabled, out coBaseX, out coBaseY);
+            if (!coEnabled)
+            {
+                coBaseX = 0f;
+                coBaseY = 0f;
+            }
+
+            int addedCount = 0;
+            var addedPages = new List<int>();
+            foreach (PdfTextMatch match in matches)
+            {
+                // 使用当前选中的印章，用该章记忆的参数（无记忆则用界面当前值）
+                StampPickerItem pick = GetSelectedStampItem();
+                if (pick == null) break;
+                AppConfig.StampParams sp = LoadParamsForStampItem(pick);
+                if (sp == null) break;
+
+                AutoStampPositionResult pos = AutoStampPositionCalculator.Calculate(
+                    match.CenterX, match.CenterY, match.PageWidth, match.PageHeight, ratioW, ratioH);
+
+                // 选"否"追加模式：旧批次同页已有坐标接近的印章则跳过，不重复叠加
+                if (appendToExistingBatch)
+                {
+                    bool alreadyPlaced = stampPlacements.ForPage(path, match.PageIndex + 1)
+                        .Any(p => p.BatchId == batchId
+                            && Math.Abs(p.X - pos.Px) < 0.03
+                            && Math.Abs(p.Y - pos.Py) < 0.03);
+                    if (alreadyPlaced) continue;
+                }
+
+                // 每个匹配在放置时各自随机一次印章与位移（随机值固定进该印章），叠加到中心偏移之上
+                GetRandomOffset(sp.RandomParams, sp.RandomOffsetMm, out float dxMm, out float dyMm);
+                stampPlacements.Add(path, match.PageIndex + 1, pos.Px, pos.Py, pick.Path, sp.Size,
+                        sp.Opacity, GetEffectiveRotation(sp.Rotation, sp.RandomParams, sp.RandomRange),
+                        sp.Tolerance, sp.RemoveWhite,
+                        sp.RotationHandle == 0, randomRotation: sp.RandomParams && sp.RandomRange > 0,
+                        batchId: batchId,
+                        offsetXmm: coBaseX + dxMm, offsetYmm: coBaseY + dyMm,
+                        textureEnabled: sp.TextureQuality, textureSeed: NewTextureSeed(),
+                        textureKb: NewTextureK(), textureKblob: NewTextureK(), textureKgrad: NewTextureK(),
+                        textureKwhite: NewTextureK(), textureKspot: NewTextureK(),
+                        textureKradial: NewTextureK(), textureKcast: NewTextureK(),
+                        textureBrightness: sp.TextureBrightness, textureBlob: sp.TextureBlob,
+                        textureGradient: sp.TextureGradient, textureWhite: sp.TextureWhite,
+                textureSpot: sp.TextureSpot,
+                textureRadial: sp.TextureRadial,
+                textureCast: sp.TextureCast);
+                addedCount++;
+                addedPages.Add(match.PageIndex + 1);
+            }
+
+            if (appendToExistingBatch && addedCount == 0)
+            {
+                AppendLog(string.Format("按文字盖章完成：关键词“{0}”，本次搜索到 {1} 处，位置上次都已盖过，无新增印章。", keyword, matches.Count));
+                SetOperationHint("按文字盖章完成：无新增，详见下方日志");
+                RefreshPreviewOverlays();
+                return new AutoPlaceFileResult { Success = true, Added = 0 };
+            }
+
+            if (!appendToExistingBatch)
+            {
+                autoStampOperations.Add(new AutoStampOperation { Keyword = keyword, BatchId = batchId, FilePath = path });
+            }
+            btnUndoAuto.IsEnabled = true;
+
+            // 成功找到并完成盖章的文字才记入历史
+            AppConfig.RecordAutoStampKeyword(keyword);
+            // 同步该词的中心偏移记忆（界面当前勾选与横纵值）
+            float coUiX, coUiY;
+            float.TryParse(txtCenterOffsetX.Text, out coUiX);
+            float.TryParse(txtCenterOffsetY.Text, out coUiY);
+            AppConfig.SetCenterOffsetForKeyword(keyword, chkCenterOffset.IsChecked == true, coUiX, coUiY);
+
+            RefreshPreviewOverlays();
+
+            // 页码列表（去重排序，全部列出）
+            string pageDisplay = "第" + string.Join("、", addedPages.Distinct().OrderBy(p => p)) + "页";
+
+            if (appendToExistingBatch)
+            {
+                // 追加模式：详细结果写左侧，右侧简短提示
+                int skippedCount = matches.Count - addedCount;
+                AppendLog(string.Format(
+                    "按文字盖章完成：关键词“{0}”，本次搜索到 {1} 处，新增盖了 {2} 个，已在 {3} 盖章，其余 {4} 处上次已盖过。右键单个章可删除，或点击“撤销放置”逐步撤销。",
+                    keyword, matches.Count, addedCount, pageDisplay, skippedCount));
+                SetOperationHint(string.Format("按文字盖章完成：新增 {0} 个，详见下方日志", addedCount));
+            }
+            else if (contextKeywords.Length > 0 && matches.Count < allMatches.Count)
+            {
+                string kwDisplay = string.Join("，", contextKeywords);
+                string modeDisplay = requireAll ? "全部关键词（且）" : "任一关键词（或）";
+                AppendLog(string.Format(
+                    "按文字盖章完成：关键词“{0}”，共找到 {1} 处，其中 {2} 处附近有关键词，已在 {3} 盖章。关键词（共 {4} 个）：{5} | 匹配模式：{6}。右键单个章可删除，或点击“撤销放置”逐步撤销。",
+                    keyword, allMatches.Count, matches.Count, pageDisplay, contextKeywords.Length, kwDisplay, modeDisplay));
+                SetOperationHint(string.Format("按文字盖章完成：{0} 处，详见下方日志", matches.Count));
+            }
+            else
+            {
+                AppendLog(string.Format(
+                    "按文字盖章完成：关键词“{0}”，共找到 {1} 处，已在 {2} 盖章。右键单个章可删除，或点击“撤销放置”逐步撤销。",
+                    keyword, matches.Count, pageDisplay));
+                SetOperationHint(string.Format("按文字盖章完成：{0} 处，详见下方日志", matches.Count));
+            }
+            return new AutoPlaceFileResult { Success = true, Added = addedCount };
         }
 
         // 撤销放置：每次撤销最近一次"按文字放置"
@@ -2168,11 +2904,26 @@ namespace PDFQFZ.WPF
                 return;
             }
 
-            AutoStampOperation op = autoStampOperations[autoStampOperations.Count - 1];
-            autoStampOperations.RemoveAt(autoStampOperations.Count - 1);
+            // 只撤销当前预览文件的最近一次"按文字放置"（多文件时各文件批次互不影响）
+            int idx = -1;
+            for (int i = autoStampOperations.Count - 1; i >= 0; i--)
+            {
+                if (string.Equals(autoStampOperations[i].FilePath, sourcePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx < 0)
+            {
+                return;
+            }
+            AutoStampOperation op = autoStampOperations[idx];
+            autoStampOperations.RemoveAt(idx);
 
             int removed = stampPlacements.RemoveBatch(sourcePath, op.BatchId);
-            btnUndoAuto.IsEnabled = autoStampOperations.Count > 0;
+            btnUndoAuto.IsEnabled = autoStampOperations.Any(o =>
+                string.Equals(o.FilePath, sourcePath, StringComparison.OrdinalIgnoreCase));
 
             RefreshPreviewOverlays();
             if (removed > 0)
@@ -2260,9 +3011,9 @@ namespace PDFQFZ.WPF
 
             // 盖章时自动收起印章参数和其他设置，给预览区留更多空间
             if (sealParamsContent.Visibility == Visibility.Visible)
-                ToggleFold(sealParamsContent, foldSealParamsArrow, foldSealParamsText);
+                ToggleFold(sealParamsContent, foldSealParamsArrow, foldSealParamsText, sealParamsHeaderGrid);
             if (otherContent.Visibility == Visibility.Visible)
-                ToggleFold(otherContent, foldOtherArrow, foldOtherText);
+                ToggleFold(otherContent, foldOtherArrow, foldOtherText, otherHeaderGrid);
 
             // 汇总本次是否实际会产生盖章效果（骑缝章 / 数字签名 / 预览中已放置的章）
             int qfzType = SeamBusinessFromDisplay(comboSeam.SelectedIndex);
@@ -2341,6 +3092,7 @@ namespace PDFQFZ.WPF
             AppConfig.ContextKeywords = txtContextKeywords.Text?.Trim() ?? "";
             AppConfig.ContextRange = ParseContextRange(txtContextRange.Text);
             AppConfig.ContextMatch = comboContextMatch.SelectedIndex == 1 ? 1 : 0;
+            AppConfig.ContextExcludeSpaces = chkContextExcludeSpaces.IsChecked == true;
 
             bool needStampImage = wantsSeam || wantsSignature || hasPreviewStamps;
             if (needStampImage && !File.Exists(SelectedStampPath()))
@@ -2892,15 +3644,25 @@ namespace PDFQFZ.WPF
         {
             public string Keyword;
             public int BatchId;
+            public string FilePath;   // 所属 PDF 文件（多文件按文字盖章时按文件区分）
         }
 
-        /// <summary>印章下拉项数据对象（用普通数据类而非 ComboBoxItem，ItemTemplate 才能生效显示删除叉）。</summary>
-        private sealed class StampItem
+        /// <summary>单文件按文字盖章结果（多文件汇总用）。</summary>
+        private sealed class AutoPlaceFileResult
         {
-            public string Content { get; set; }
-            public string Tag { get; set; }
-            // IsEditable=True 的 ComboBox 选中框用 ToString() 显示，重写后显示文件名而非类型名
-            public override string ToString() => Content ?? "";
+            public bool Success;       // 是否完成放置
+            public bool Cancelled;     // 用户取消（重复放置确认选“取消”）
+            public int Added;          // 新增印章数
+            public string SkipReason;  // 未处理原因（图片型/未找到文字/关键词）
+        }
+
+        /// <summary>印章下拉项数据对象：显示名（不含后缀，可重命名）+ 路径 + 选中状态。</summary>
+        private sealed class StampPickerItem
+        {
+            public string DisplayName { get; set; }
+            public string Path { get; set; }
+            public bool IsSelected { get; set; }
+            public override string ToString() => DisplayName ?? "";
         }
     }
 }

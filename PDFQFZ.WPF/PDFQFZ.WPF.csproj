@@ -67,6 +67,18 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
+    <Page Include="RenameStampDialog.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Controls\NumericSliderRow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="TextureSettingsWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="Themes\Styles.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -87,6 +99,17 @@
     </Compile>
     <Compile Include="PageRangeDialog.xaml.cs">
       <DependentUpon>PageRangeDialog.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="RenameStampDialog.xaml.cs">
+      <DependentUpon>RenameStampDialog.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Controls\NumericSliderRow.xaml.cs">
+      <DependentUpon>NumericSliderRow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="TextureSettingsWindow.xaml.cs">
+      <DependentUpon>TextureSettingsWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="Services\StampEngine.cs" />
@@ -145,6 +168,10 @@
     <EmbeddedResource Include="$(Pkgbblanchon_PDFium_Win32)\runtimes\win-x64\native\pdfium.dll">
       <Link>assets\pdfium-x64.dll</Link>
       <LogicalName>PDFQFZ.WPF.assets.pdfium-x64.dll</LogicalName>
+    </EmbeddedResource>
+    <!-- 内置调试 PDF：无文件时预览区加载它用于盖章调试（不参与输出） -->
+    <EmbeddedResource Include="Assets\debug_page.pdf">
+      <LogicalName>PDFQFZ.WPF.assets.debug_page.pdf</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
