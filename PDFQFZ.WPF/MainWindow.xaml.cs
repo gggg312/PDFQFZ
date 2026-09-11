@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
@@ -88,6 +89,9 @@ namespace PDFQFZ.WPF
         // 日志区帮助文字（对齐原版 InitialHelpText）：初始只含帮助文字时，首次写日志先清空
         private bool logContainsOnlyHelp = true;
 
+        // 日志区是否钉在底部：追加日志时滚到底；用户手动向上滚动看历史时取消钉底，不强制拉回
+        private bool _logPinToBottom = true;
+
         // 当前选中的印章文件名（用于按印章分别保存/恢复参数）
         private string _currentStampFileName = "";
         /// <summary>印章条目列表（内存数据源，含显示名/路径/勾选状态）。</summary>
@@ -99,10 +103,14 @@ namespace PDFQFZ.WPF
         private bool _suppressMaxSplitTrack;       // 代码赋值 txtMaxSplit 时抑制 TextChanged 标记
         private bool _suppressStampParamSave;      // ApplyStampParams 加载参数到界面时抑制反向保存
         private bool _suppressCenterOffsetSync;   // 代码赋值中心偏移控件时抑制反向保存
+        private bool _layoutTestMode;             // /layouttest 命令行模式：自动遍历窗口高度断言布局，写 layout_test.log 后退出
 
         public MainWindow(string[] args)
         {
             InitializeComponent();
+            // 窗口标题自动携带完整版本（程序集 4 段版本号，如 2.3.1.114），避免打开后不知道是哪版
+            var ver = Assembly.GetExecutingAssembly().GetName().Version;
+            Title = $"PDF盖页面章与骑缝章工具（V{ver.Major}.{ver.Minor}.{ver.Build}.{ver.Revision} GG优化版）";
             logText.Text = InitialHelpText;   // 初始显示帮助说明（对齐原版）
             logContainsOnlyHelp = true;
             LoadConfigToUi();
@@ -116,38 +124,60 @@ namespace PDFQFZ.WPF
             // 滚动条：点击轨道直接跳转到点击位置（统一交互）
             settingsScroll.PreviewMouseLeftButtonDown += ScrollViewer_TrackJump;
             logScroll.PreviewMouseLeftButtonDown += ScrollViewer_TrackJump;
+            // 日志区：内容重排（换行/滚动条出现改变视口）后自动补滚到底，避免最后一行被视口裁掉
+            logScroll.ScrollChanged += LogScroll_ScrollChanged;
 
             if (args != null && args.Length > 0 && File.Exists(args[0]))
             {
                 LoadPdf(args[0]);
             }
+
+            // 布局回归测试模式：命令行带 /layouttest 时自动遍历窗口高度断言布局数值，
+            // 结果写入运行目录 layout_test.log 后自动退出（退出前恢复原窗口尺寸，不污染用户配置）。
+            foreach (var a in args ?? new string[0])
+            {
+                if (string.Equals(a, "/layouttest", StringComparison.OrdinalIgnoreCase))
+                {
+                    _layoutTestMode = true;
+                    break;
+                }
+            }
+            if (_layoutTestMode)
+                Dispatcher.BeginInvoke(new Action(RunLayoutTest), System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
         // ===================== 初始化 =====================
         private void InitFoldState()
         {
             // 按配置恢复 3/4/5 的展开收起状态（config.ini 关闭时保存，首次默认：按文字盖章展开、印章参数/其他设置折叠）
-            ApplyFoldState(autoTextContent, foldAutoTextArrow, foldAutoTextText, autoTextHeaderGrid, AppConfig.FoldAutoText == 1);
-            ApplyFoldState(sealParamsContent, foldSealParamsArrow, foldSealParamsText, sealParamsHeaderGrid, AppConfig.FoldSealParams == 1);
-            ApplyFoldState(otherContent, foldOtherArrow, foldOtherText, otherHeaderGrid, AppConfig.FoldOther == 1);
+            ApplyFoldState(autoTextContent, foldAutoTextArrow, foldAutoTextText, autoTextHeaderGrid, btnFoldAutoText, AppConfig.FoldAutoText == 1);
+            ApplyFoldState(sealParamsContent, foldSealParamsArrow, foldSealParamsText, sealParamsHeaderGrid, btnFoldSealParams, AppConfig.FoldSealParams == 1);
+            ApplyFoldState(otherContent, foldOtherArrow, foldOtherText, otherHeaderGrid, btnFoldOther, AppConfig.FoldOther == 1);
         }
 
         /// <summary>按指定展开状态设置折叠区域（内容可见性、箭头、文字、展开红字提醒、标题行间距）。</summary>
         /// <remarks>收起态：标题行底部间距归零，标题行在卡片内上下居中，收起高度更紧凑；展开态：恢复标题与内容的 10px 间距。</remarks>
         private static void ApplyFoldState(System.Windows.Controls.StackPanel content,
-                                           System.Windows.Controls.TextBlock arrow,
+                                           System.Windows.Shapes.Path arrow,
                                            System.Windows.Controls.TextBlock text,
                                            System.Windows.Controls.Grid header,
+                                           System.Windows.Controls.Button btn,
                                            bool expanded)
         {
             content.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
             header.Margin = expanded ? new Thickness(0, 0, 0, 10) : new Thickness(0);
-            arrow.Text = expanded ? "▼" : "▶";
+            // 折叠箭头（Icon.FoldArrow=▼）：展开态=▼ 原样；折叠态=同图向左旋转 90° 显示 ▶
+            arrow.RenderTransform = expanded ? null : new System.Windows.Media.RotateTransform(-90);
             text.Text = expanded ? "收起设置" : "展开设置";
-            System.Windows.Media.Brush redBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xCC, 0x33, 0x33));
-            System.Windows.Media.Brush defaultBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x66, 0x66, 0x66));
-            arrow.Foreground = expanded ? redBrush : defaultBrush;
-            text.Foreground = expanded ? redBrush : defaultBrush;
+            // 状态色：展开态（收起设置）=红字红箭头红边框提醒可收起；收起态（展开设置）=蓝字蓝箭头蓝边框（与标准按钮一致）
+            System.Windows.Media.Brush brush;
+            if (expanded)
+                brush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xCC, 0x33, 0x33)); // 红 #CC3333
+            else
+                brush = (System.Windows.Media.Brush)System.Windows.Application.Current.FindResource("Color.Primary"); // 蓝 #1677FF
+            arrow.Fill = brush;
+            text.Foreground = brush;
+            btn.BorderBrush = brush;
         }
 
         /// <summary>把 config.ini 的值填入界面控件。</summary>
@@ -183,7 +213,6 @@ namespace PDFQFZ.WPF
                 comboRotationHandle.SelectedIndex = AppConfig.QbFlag;
                 txtOpacity.Text = AppConfig.Opacity.ToString();
                 chkRandomParams.IsChecked = true;
-                txtRandomOffsetMm.Text = "5";
                 UpdateRandomEnabled();
                 chkRemoveWhite.IsChecked = false;   // 默认关闭去除白色背景
                 txtTolerance.Text = "20";
@@ -199,6 +228,11 @@ namespace PDFQFZ.WPF
                     AppConfig.OutputQualityDpi >= 96 ? 3 : 4;
                 UpdateOutputQualityEnabled();
 
+                // V145：输出目录锁定——恢复上次锁定的目录与锁定状态（勾选框文字随 IsChecked 自动置灰/恢复）
+                if (!string.IsNullOrWhiteSpace(AppConfig.OutputDir))
+                    txtOutputDir.Text = AppConfig.OutputDir;
+                chkOutputDirLock.IsChecked = AppConfig.OutputDirLocked == 1;
+
                 // 按文字盖章——上下文过滤（从配置恢复）
                 chkContextFilter.IsChecked = AppConfig.ContextFilterEnabled;
                 txtContextKeywords.Text = string.IsNullOrEmpty(AppConfig.ContextKeywords) ? "盖章,公章" : AppConfig.ContextKeywords;
@@ -212,6 +246,18 @@ namespace PDFQFZ.WPF
                 txtSignature.Text = AppConfig.QmType == 1 ? AppConfig.SignBuiltInPath : AppConfig.SignCustomPath;
                 txtSignaturePass.Password = AppConfig.QmType == 1 ? AppConfig.SignBuiltInPass : AppConfig.SignCustomPass;
                 UpdateSignatureEnabled();
+
+                // 输出文件名格式自定义（V132）
+                comboOutputNamePos.SelectedIndex = AppConfig.OutputNamePos == 1 ? 1 : 0;
+                txtOutputNameMark.Text = string.IsNullOrEmpty(AppConfig.OutputNameMark) ? "" : AppConfig.OutputNameMark;
+                comboOutputNameSeqType.SelectedIndex = (AppConfig.OutputNameSeqType >= 0 && AppConfig.OutputNameSeqType <= 2)
+                    ? AppConfig.OutputNameSeqType : 0;
+                comboOutputNamePad.SelectedIndex = (AppConfig.OutputNamePad >= 1 && AppConfig.OutputNamePad <= 3)
+                    ? AppConfig.OutputNamePad - 1 : 0;
+                chkOutputNameTs.IsChecked = AppConfig.OutputNameTs;
+                comboOutputNameTsFormat.SelectedIndex = TsFormatToIndex(AppConfig.OutputNameTsFormat);
+                UpdateOutputNameTsEnabled();
+                UpdateOutputNamePreview();
 
                 // 印章列表（yz.log，多印章下拉），并选中上次使用的印章
                 LoadStampList();
@@ -316,17 +362,25 @@ namespace PDFQFZ.WPF
         {
             btnSourcePdf.Click += (s, e) => ShowSourcePickMenu();
             btnOutputDir.Click += (s, e) => ChooseOutputDir();
+            // V145：输出目录与锁定状态实时同步到配置字段（保存配置时写入 ini；TextChanged 幂等，启动恢复值写回无害）
+            txtOutputDir.TextChanged += (s, e) => AppConfig.OutputDir = txtOutputDir.Text?.Trim() ?? "";
+            chkOutputDirLock.Checked += (s, e) => AppConfig.OutputDirLocked = 1;
+            chkOutputDirLock.Unchecked += (s, e) => AppConfig.OutputDirLocked = 0;
             btnStampFile.Click += (s, e) => ChooseStampFile();
             // 印章下拉：删除/重命名/选择在各自事件里调用 OnStampSelectionChanged
             // 用 Preview 事件确保文件拖放可靠（TextBox 内部会拦截普通 DragOver/Drop）
             txtSourcePdf.PreviewDragOver += (s, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.Copy; e.Handled = true; } };
             txtSourcePdf.PreviewDrop += OnSourceDrop;
-            // 文件/文件夹拖到预览区也可加载（作为源 PDF/目录，与源文件框同一处理）
-            previewBorder.AllowDrop = true;   // Border 默认不接收拖放，必须显式开启
-            previewBorder.PreviewDragOver += (s, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.Copy; e.Handled = true; } };
-            previewBorder.PreviewDrop += OnSourceDrop;
-            txtOutputDir.PreviewDragOver += (s, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.Copy; e.Handled = true; } };
-            txtOutputDir.PreviewDrop += OnOutputDrop;
+            // 预览区无需单独注册拖放：窗口级 AllowDrop 已覆盖整个界面（V85），预览区拖入走窗口 Drop 同一逻辑
+            // 输出目录框不接收拖放（V87）：拖入 PDF/文件夹一律视为加载源文件，输出目录只能通过按钮手动选择
+            // 全窗口拖放：界面任意空白区域拖入 PDF/文件夹 均可加载（文件夹→目录模式、文件→文件模式）；
+            // 用冒泡事件且不拦截：源PDF框/输出目录框/预览区已用 Preview 事件设 Handled=true 自行接管，不会重复加载
+            DragOver += (s, e) =>
+            {
+                if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.Copy; e.Handled = true; }
+                else { e.Effects = DragDropEffects.None; }
+            };
+            Drop += OnSourceDrop;
             // 当前文件下拉：切换时加载对应文件预览
             comboCurrentFile.SelectionChanged += OnCurrentFileChanged;
 
@@ -371,9 +425,9 @@ namespace PDFQFZ.WPF
             // 键盘翻页（对齐原版 PreviewNavigation_KeyDown：PageUp/Down、上下左右翻页；输入框聚焦时不拦截）
             PreviewKeyDown += OnWindowPreviewKeyDown;
 
-            btnFoldSealParams.Click += (s, e) => ToggleFold(sealParamsContent, foldSealParamsArrow, foldSealParamsText, sealParamsHeaderGrid);
-            btnFoldOther.Click += (s, e) => ToggleFold(otherContent, foldOtherArrow, foldOtherText, otherHeaderGrid);
-            btnFoldAutoText.Click += (s, e) => ToggleFold(autoTextContent, foldAutoTextArrow, foldAutoTextText, autoTextHeaderGrid);
+            btnFoldSealParams.Click += (s, e) => ToggleFold(sealParamsContent, foldSealParamsArrow, foldSealParamsText, sealParamsHeaderGrid, btnFoldSealParams);
+            btnFoldOther.Click += (s, e) => ToggleFold(otherContent, foldOtherArrow, foldOtherText, otherHeaderGrid, btnFoldOther);
+            btnFoldAutoText.Click += (s, e) => ToggleFold(autoTextContent, foldAutoTextArrow, foldAutoTextText, autoTextHeaderGrid, btnFoldAutoText);
             // 用户手动修改分割数（代码赋值由 _suppressMaxSplitTrack 抑制，不算手动）
             txtMaxSplit.TextChanged += (s, e) =>
             {
@@ -419,6 +473,15 @@ namespace PDFQFZ.WPF
             comboSignature.SelectionChanged += (s, e) => UpdateSignatureEnabled();
             comboPageStamp.SelectionChanged += (s, e) => UpdatePlacementOperationHint();
 
+            // 输出文件名格式自定义（V132）：任一控件变化 → 刷新预览 + 保存配置（启动赋值阶段 IsLoaded=false 不保存）
+            comboOutputNamePos.SelectionChanged += (s, e) => OutputName_Changed();
+            txtOutputNameMark.TextChanged += (s, e) => OutputName_Changed();
+            comboOutputNameSeqType.SelectionChanged += (s, e) => OutputName_Changed();
+            comboOutputNamePad.SelectionChanged += (s, e) => OutputName_Changed();
+            chkOutputNameTs.Checked += (s, e) => OutputName_Changed();
+            chkOutputNameTs.Unchecked += (s, e) => OutputName_Changed();
+            comboOutputNameTsFormat.SelectionChanged += (s, e) => OutputName_Changed();
+
             // 窗口大小变化时延迟重算预览布局：SizeChanged 触发时子控件 previewScroll 可能尚未完成布局，
             // 直接读 ViewportWidth/Height 会拿到旧值，导致全屏/还原后页面大小不更新（需手动切换视图才正常）
             SizeChanged += (s, e) => Dispatcher.BeginInvoke(new Action(RelayoutPreview),
@@ -443,22 +506,34 @@ namespace PDFQFZ.WPF
                 }), System.Windows.Threading.DispatcherPriority.Loaded);
             };
 
-            // 去除白色背景：未勾选时容差不可编辑
-            chkRemoveWhite.Checked += (s, e) => UpdateToleranceEnabled();
-            chkRemoveWhite.Unchecked += (s, e) => UpdateToleranceEnabled();
+            // 去除白色背景：未勾选时容差不可编辑；操作该控件时提示功能说明（程序赋值经 _suppressStampParamSave 抑制）
+            chkRemoveWhite.Checked += (s, e) =>
+            {
+                UpdateToleranceEnabled();
+                SaveCurrentStampParams();
+                if (IsLoaded && !_suppressStampParamSave)
+                {
+                    SetOperationHint("去除图章白色背景：清除印章图片的白色底，让章子透明融入页面");
+                }
+            };
+            chkRemoveWhite.Unchecked += (s, e) =>
+            {
+                UpdateToleranceEnabled();
+                SaveCurrentStampParams();
+                if (IsLoaded && !_suppressStampParamSave)
+                {
+                    SetOperationHint("去除图章白色背景：清除印章图片的白色底，让章子透明融入页面");
+                }
+            };
 
             // 印章参数：界面改动立即保存到当前章记忆（改即生效；MaxSplit 遵循“手动修改才记忆”规则，不在此自动保存）
             txtStampSize.TextChanged += (s, e) => SaveCurrentStampParams();
             txtRotation.TextChanged += (s, e) => SaveCurrentStampParams();
             txtOpacity.TextChanged += (s, e) => SaveCurrentStampParams();
-            txtRandomRange.TextChanged += (s, e) => SaveCurrentStampParams();
-            txtRandomOffsetMm.TextChanged += (s, e) => SaveCurrentStampParams();
             txtTolerance.TextChanged += (s, e) => SaveCurrentStampParams();
             comboRotationHandle.SelectionChanged += (s, e) => SaveCurrentStampParams();
             chkRandomParams.Checked += (s, e) => SaveCurrentStampParams();
             chkRandomParams.Unchecked += (s, e) => SaveCurrentStampParams();
-            chkRemoveWhite.Checked += (s, e) => SaveCurrentStampParams();
-            chkRemoveWhite.Unchecked += (s, e) => SaveCurrentStampParams();
 
             Closing += (s, e) =>
             {
@@ -499,20 +574,40 @@ namespace PDFQFZ.WPF
         // ===================== 上下文过滤：勾选控制 + 占位提示 =====================
         private void HookContextFilterEvents()
         {
-            chkContextFilter.Checked += (s, e) => UpdateContextFilterEnabled();
-            chkContextFilter.Unchecked += (s, e) => UpdateContextFilterEnabled();
+            chkContextFilter.Checked += (s, e) =>
+            {
+                UpdateContextFilterEnabled();
+                if (IsLoaded)
+                {
+                    SetOperationHint("附近关键词：目标文字前后指定范围内出现这些词才盖章，用于精准定位盖章位置");
+                }
+            };
+            chkContextFilter.Unchecked += (s, e) =>
+            {
+                UpdateContextFilterEnabled();
+                if (IsLoaded)
+                {
+                    SetOperationHint("附近关键词：目标文字前后指定范围内出现这些词才盖章，用于精准定位盖章位置");
+                }
+            };
+            // 忽略空白：匹配时是否忽略空白字符（启动赋值在 LoadConfigToUi，IsLoaded=false 不提示）
+            chkContextExcludeSpaces.Checked += (s, e) =>
+            {
+                if (IsLoaded) SetOperationHint("忽略空白：匹配附近关键词时忽略文字间的空格等空白字符");
+            };
+            chkContextExcludeSpaces.Unchecked += (s, e) =>
+            {
+                if (IsLoaded) SetOperationHint("忽略空白：匹配附近关键词时忽略文字间的空格等空白字符");
+            };
             txtContextKeywords.TextChanged += (s, e) => UpdateContextKeywordsWatermark();
             txtContextKeywords.GotKeyboardFocus += (s, e) => UpdateContextKeywordsWatermark();
             txtContextKeywords.LostKeyboardFocus += (s, e) => UpdateContextKeywordsWatermark();
         }
 
-        // ===================== 中心偏移：随搜索文字记忆 =====================
+        // ===================== 中心偏移：随搜索文字记忆（弹窗设置，同随机角度位移规范） =====================
         private void HookCenterOffsetEvents()
         {
-            chkCenterOffset.Checked += (s, e) => UpdateCenterOffsetEnabledAndSave();
-            chkCenterOffset.Unchecked += (s, e) => UpdateCenterOffsetEnabledAndSave();
-            txtCenterOffsetX.TextChanged += (s, e) => SaveCenterOffsetFromUi();
-            txtCenterOffsetY.TextChanged += (s, e) => SaveCenterOffsetFromUi();
+            // chkCenterOffset 的勾选事件在 XAML 挂载（ChkCenterOffset_Changed），此处不再重复挂载
             // 关键词确定（失焦/关闭下拉）后加载该词记忆的偏移；输入击键时不加载，避免打断输入
             comboAutoKeyword.LostKeyboardFocus += (s, e) =>
             {
@@ -522,12 +617,21 @@ namespace PDFQFZ.WPF
             comboAutoKeyword.DropDownClosed += (s, e) => LoadCenterOffsetFromKeyword(comboAutoKeyword.Text);
         }
 
-        /// <summary>勾选/取消勾选：启用/禁用输入框并保存记忆。</summary>
+        /// <summary>中心偏移勾选变化：未勾选时"中心偏移"按钮置灰（与随机角度位移交互一致）。</summary>
+        private void ChkCenterOffset_Changed(object sender, RoutedEventArgs e)
+        {
+            UpdateCenterOffsetEnabledAndSave();
+            if (IsLoaded && !_suppressCenterOffsetSync)
+            {
+                SetOperationHint("中心偏移：调整盖章位置相对文字识别点的偏移距离，用于微调盖章落点");
+            }
+        }
+
+        /// <summary>勾选/取消勾选：启用/禁用按钮并保存记忆。</summary>
         private void UpdateCenterOffsetEnabledAndSave()
         {
             bool on = chkCenterOffset.IsChecked == true;
-            txtCenterOffsetX.IsEnabled = on;
-            txtCenterOffsetY.IsEnabled = on;
+            btnCenterOffset.IsEnabled = on;
             SaveCenterOffsetFromUi();
         }
 
@@ -543,10 +647,7 @@ namespace PDFQFZ.WPF
             {
                 return;
             }
-            float x, y;
-            float.TryParse(txtCenterOffsetX.Text, out x);
-            float.TryParse(txtCenterOffsetY.Text, out y);
-            AppConfig.SetCenterOffsetForKeyword(keyword, chkCenterOffset.IsChecked == true, x, y);
+            AppConfig.SetCenterOffsetForKeyword(keyword, chkCenterOffset.IsChecked == true, _centerOffsetX, _centerOffsetY);
         }
 
         /// <summary>按关键词加载记忆的偏移到界面；无记忆则恢复默认（不勾选、0/0）。</summary>
@@ -563,10 +664,9 @@ namespace PDFQFZ.WPF
                 float x, y;
                 AppConfig.GetCenterOffsetForKeyword(keyword.Trim(), out enabled, out x, out y);
                 chkCenterOffset.IsChecked = enabled;
-                txtCenterOffsetX.Text = x.ToString("0.##");
-                txtCenterOffsetY.Text = y.ToString("0.##");
-                txtCenterOffsetX.IsEnabled = enabled;
-                txtCenterOffsetY.IsEnabled = enabled;
+                _centerOffsetX = (int)Math.Round(x);
+                _centerOffsetY = (int)Math.Round(y);
+                btnCenterOffset.IsEnabled = enabled;
             }
             finally
             {
@@ -574,7 +674,7 @@ namespace PDFQFZ.WPF
             }
         }
 
-        /// <summary>根据勾选状态启用/禁用关键词输入框、范围输入框、匹配方式下拉。</summary>
+        /// <summary>根据勾选状态启用/禁用关键词输入框、范围输入框、匹配方式下拉及从属标题（未勾选时整块灰显）。</summary>
         private void UpdateContextFilterEnabled()
         {
             bool enabled = chkContextFilter.IsChecked == true;
@@ -582,6 +682,8 @@ namespace PDFQFZ.WPF
             txtContextRange.IsEnabled = enabled;
             comboContextMatch.IsEnabled = enabled;
             chkContextExcludeSpaces.IsEnabled = enabled;
+            lblContextRange.IsEnabled = enabled;
+            lblContextMatch.IsEnabled = enabled;
         }
 
         /// <summary>关键词输入框为空且未聚焦时显示占位提示。</summary>
@@ -600,13 +702,17 @@ namespace PDFQFZ.WPF
             comboAutoKeyword.Text = current;
         }
 
-        /// <summary>历史下拉项右侧删除叉：删除该条历史，不填入输入框。</summary>
+        /// <summary>历史下拉项右侧删除叉：删除该条历史；若删除的正是输入框内当前文字，同步清空输入框。</summary>
         private void HistoryDelete_Click(object sender, RoutedEventArgs e)
         {
             if (sender is System.Windows.Controls.Button btn && btn.Tag is string keyword)
             {
                 e.Handled = true;
                 AppConfig.RemoveAutoStampKeyword(keyword);
+                if (string.Equals(comboAutoKeyword.Text?.Trim(), keyword, StringComparison.OrdinalIgnoreCase))
+                {
+                    comboAutoKeyword.Text = string.Empty;
+                }
                 RebuildAutoHistoryItems();
                 SetOperationHint(string.Format("已从历史中删除：“{0}”。", keyword));
             }
@@ -687,19 +793,24 @@ namespace PDFQFZ.WPF
         }
 
         // ===================== 折叠 =====================
-        private void ToggleFold(System.Windows.Controls.StackPanel content, System.Windows.Controls.TextBlock arrow, System.Windows.Controls.TextBlock text, System.Windows.Controls.Grid header)
+        private void ToggleFold(System.Windows.Controls.StackPanel content, System.Windows.Shapes.Path arrow, System.Windows.Controls.TextBlock text, System.Windows.Controls.Grid header, System.Windows.Controls.Button btn)
         {
             bool collapsed = content.Visibility != Visibility.Visible;
             content.Visibility = collapsed ? Visibility.Visible : Visibility.Collapsed;
             // 收起态：标题行底部间距归零上下居中；展开态：恢复标题与内容的 10px 间距
             header.Margin = collapsed ? new Thickness(0, 0, 0, 10) : new Thickness(0);
-            arrow.Text = collapsed ? "▼" : "▶";
+            // 折叠箭头（Icon.FoldArrow=▼）：展开态=▼ 原样；折叠态=同图向左旋转 90° 显示 ▶
+            arrow.RenderTransform = collapsed ? null : new System.Windows.Media.RotateTransform(-90);
             text.Text = collapsed ? "收起设置" : "展开设置";
-            // 展开状态（显示"收起设置"）时文字和箭头用红色，提醒用户可以点击收起；收起状态恢复默认色
-            System.Windows.Media.Brush redBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xCC, 0x33, 0x33));
-            System.Windows.Media.Brush defaultBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x66, 0x66, 0x66));
-            arrow.Foreground = collapsed ? redBrush : defaultBrush;
-            text.Foreground = collapsed ? redBrush : defaultBrush;
+            // 状态色：展开态（收起设置）=红字红箭头红边框提醒可收起；收起态（展开设置）=蓝字蓝箭头蓝边框（与标准按钮一致）
+            System.Windows.Media.Brush brush;
+            if (collapsed)
+                brush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xCC, 0x33, 0x33)); // 红 #CC3333
+            else
+                brush = (System.Windows.Media.Brush)System.Windows.Application.Current.FindResource("Color.Primary"); // 蓝 #1677FF
+            arrow.Fill = brush;
+            text.Foreground = brush;
+            btn.BorderBrush = brush;
             // 内容高度变化后重新分配设置区/提示区高度（延迟到布局完成），并自动滚动到展开区域底部
             Dispatcher.BeginInvoke(new Action(() =>
             {
@@ -788,9 +899,12 @@ namespace PDFQFZ.WPF
         private void LoadDirectory(string dir)
         {
             if (!Directory.Exists(dir)) return;
-            // 目录模式：输出目录固定为“上传文件夹\已盖章”（无条件，避免残留文件模式的旧目录导致输出到同一层）
+            // 目录模式：输出目录固定为“上传文件夹\已盖章”（未锁定时无条件；锁定后保持用户指定目录，避免残留旧目录输出到同一层）
             string outDir = Path.Combine(dir, "已盖章");
-            txtOutputDir.Text = outDir;
+            if (chkOutputDirLock.IsChecked != true || string.IsNullOrWhiteSpace(txtOutputDir.Text))
+            {
+                txtOutputDir.Text = outDir;
+            }
             var pdfs = Directory.GetFiles(dir, "*.pdf", SearchOption.AllDirectories)
                 .Where(f => !string.Equals(Path.GetDirectoryName(f), outDir, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
@@ -894,9 +1008,11 @@ namespace PDFQFZ.WPF
                     }
                 }
 
-                AppConfig.AppendStampEntry(finalName, filePath);
+                // 入库：复制进 EXE 同目录"印章库"（重名自动加序号），条目路径指向库内文件
+                string libPath = AppConfig.ImportStampToLibrary(filePath);
+                AppConfig.AppendStampEntry(finalName, libPath);
                 // 导入后不自动勾选：用户需要时手动勾选（勾选集合保持不变）
-                var item = new StampPickerItem { DisplayName = finalName, Path = filePath, IsSelected = false };
+                var item = new StampPickerItem { DisplayName = finalName, Path = libPath, IsSelected = false };
                 _stampItems.Add(item);
                 imported++;
             }
@@ -926,20 +1042,24 @@ namespace PDFQFZ.WPF
             return baseName + i.ToString();
         }
 
-        /// <summary>加载印章列表（config.ini），恢复上次勾选集合；勾选集为空时兼容旧配置（上次使用章/第一个）。</summary>
+        /// <summary>加载印章列表（config.ini），恢复上次勾选集合；勾选集为空时兼容旧配置（上次使用章/第一个）。
+        /// 启动时先执行一次印章库迁移（旧外部路径复制入库并更新配置）。</summary>
         private void LoadStampList()
         {
             _stampItems.Clear();
             _selectedStampNames.Clear();
 
+            AppConfig.MigrateStampLibrary();   // V82：旧配置外部印章图复制进"印章库"并更新条目
+
             List<AppConfig.StampEntry> entries = AppConfig.LoadStampEntries();
             if (entries.Count == 0 && !string.IsNullOrWhiteSpace(AppConfig.LastStampImagePath)
                 && File.Exists(AppConfig.LastStampImagePath))
             {
+                string libPath = AppConfig.ImportStampToLibrary(AppConfig.LastStampImagePath);
                 entries.Add(new AppConfig.StampEntry(
-                    Path.GetFileNameWithoutExtension(AppConfig.LastStampImagePath), AppConfig.LastStampImagePath));
+                    Path.GetFileNameWithoutExtension(AppConfig.LastStampImagePath), libPath));
                 AppConfig.AppendStampEntry(
-                    Path.GetFileNameWithoutExtension(AppConfig.LastStampImagePath), AppConfig.LastStampImagePath);
+                    Path.GetFileNameWithoutExtension(AppConfig.LastStampImagePath), libPath);
             }
 
             foreach (AppConfig.StampEntry e in entries)
@@ -1064,7 +1184,6 @@ namespace PDFQFZ.WPF
                 AppConfig.LastStampImagePath = "";
                 AppConfig.LastSelectedStampNames = new List<string>();
                 AppConfig.SaveUiConfig();
-                UpdateStampParamOwner();
                 RefreshStampPickerDisplay();
                 return;
             }
@@ -1083,21 +1202,7 @@ namespace PDFQFZ.WPF
             AppConfig.LastStampImagePath = primary.Path;
             AppConfig.LastSelectedStampNames = new List<string>(_selectedStampNames);
             AppConfig.SaveUiConfig();
-            UpdateStampParamOwner();
             RefreshStampPickerDisplay();
-        }
-
-        /// <summary>更新印章参数区居中提示：当前界面显示的是哪个印章的参数（章名红色突出）。</summary>
-        private void UpdateStampParamOwner()
-        {
-            if (_selectedStampNames.Count == 0)
-            {
-                txtStampParamOwnerPrefix.Text = "未勾选印章";
-                txtStampParamOwnerName.Text = "";
-                return;
-            }
-            txtStampParamOwnerPrefix.Text = "当前参数：";
-            txtStampParamOwnerName.Text = _selectedStampNames[0];
         }
 
         /// <summary>当前选中的印章（用于盖章）；选中章文件不存在时返回 null。</summary>
@@ -1167,23 +1272,133 @@ namespace PDFQFZ.WPF
         }
 
 
-        /// <summary>容差输入框启用状态：只有勾选"去除白色背景"时才能编辑。</summary>
+        /// <summary>容差输入框启用状态：只有勾选"去除白色背景"时才能编辑；
+        /// 未勾选时"去除图章白色背景"文字与"容差"标题置灰（AutoContextLabel 灰显，§4.6/§7.1）。
+        /// 注意：IsEnabled 必须与状态同向（勾选=true），AutoContextLabel 灰色由 IsEnabled=False 触发（V113 修正写反）。</summary>
         private void UpdateToleranceEnabled()
         {
-            txtTolerance.IsEnabled = chkRemoveWhite.IsChecked == true;
+            bool rw = chkRemoveWhite.IsChecked == true;
+            txtTolerance.IsEnabled = rw;
+            lblTolerance.Style = rw ? null : (Style)Application.Current.FindResource("TextBlock.AutoContextLabel");
+            lblTolerance.IsEnabled = rw;    // 勾选=可编辑黑字；未勾选=IsEnabled false 触发 AutoContextLabel 灰
+            lblRemoveWhite.IsEnabled = rw;  // 勾选框文字同样随勾选状态置灰/恢复（Content 内 TextBlock，§4.6）
         }
 
-        /// <summary>随机参数勾选变化：未勾选"随机"时，角度/位移输入框置灰不可填（显示的值不生效）。</summary>
+        /// <summary>随机参数勾选变化：未勾选时"随机角度与位移"按钮置灰（与盖章渲染交互一致）。</summary>
         private void ChkRandomParams_Changed(object sender, RoutedEventArgs e)
         {
             UpdateRandomEnabled();
+            SaveCurrentStampParams();
+            if (IsLoaded && !_suppressStampParamSave)
+            {
+                SetOperationHint("随机角度与位移：盖章时随机旋转角度并偏移位置，模拟手工盖章效果");
+            }
         }
 
         private void UpdateRandomEnabled()
         {
-            bool on = chkRandomParams.IsChecked == true;
-            txtRandomRange.IsEnabled = on;
-            txtRandomOffsetMm.IsEnabled = on;
+            btnRandomParams.IsEnabled = chkRandomParams.IsChecked == true;
+        }
+
+        // 中心偏移（弹窗设置、随搜索文字记忆）：横向/纵向 ±100mm
+        private int _centerOffsetX = 0;
+        private int _centerOffsetY = 0;
+        private CenterOffsetWindow _centerOffsetDlg;
+
+        /// <summary>弹窗默认定位（V131）：弹窗中心与"左上方区域"中心对齐——左上方区域 = 红色"盖章并生成文件"按钮上方的设置区
+        /// （左栏外框顶部 → 盖章按钮顶部之间的矩形，宽同左栏）。
+        /// 盖章按钮被滚动出可视区时退化为左栏整体中心；最终均夹取在屏幕工作区内。</summary>
+        private void PositionDialogOverLeftRegion(Window dlg, double dlgW, double dlgH)
+        {
+            if (leftFrame == null || btnGenerate == null)
+            {
+                dlg.Left = this.Left + (this.Width - dlgW) / 2.0;
+                dlg.Top = this.Top + (this.Height - dlgH) / 2.0;
+                return;
+            }
+            System.Windows.Point frameTL = leftFrame.PointToScreen(new System.Windows.Point(0, 0));
+            System.Windows.Point btnTL = btnGenerate.PointToScreen(new System.Windows.Point(0, 0));
+            double regionLeft = frameTL.X;
+            double regionTop = frameTL.Y;
+            double regionRight = frameTL.X + leftFrame.ActualWidth;
+            double regionBottom = btnTL.Y;
+            double regionH = regionBottom - regionTop;
+            if (regionH <= 0)
+            {
+                // 盖章按钮不在可视区（设置区已滚动）：退化为左栏整体中心对齐
+                regionBottom = frameTL.Y + leftFrame.ActualHeight;
+                regionH = regionBottom - regionTop;
+            }
+            double left = regionLeft + ((regionRight - regionLeft) - dlgW) / 2.0;
+            double top = regionTop + (regionH - dlgH) / 2.0;
+            System.Windows.Rect wa = SystemParameters.WorkArea;
+            if (left < wa.Left) left = wa.Left;
+            if (top < wa.Top) top = wa.Top;
+            if (left + dlgW > wa.Right) left = wa.Right - dlgW;
+            if (top + dlgH > wa.Bottom) top = wa.Bottom - dlgH;
+            dlg.Left = left;
+            dlg.Top = top;
+        }
+
+        /// <summary>打开中心偏移弹窗（非模态，与随机角度位移弹窗同规范）：已打开时激活。</summary>
+        private void BtnCenterOffset_Click(object sender, RoutedEventArgs e)
+        {
+            if (_centerOffsetDlg != null && _centerOffsetDlg.IsVisible)
+            {
+                _centerOffsetDlg.Activate();
+                return;
+            }
+            _centerOffsetDlg = new CenterOffsetWindow(_centerOffsetX, _centerOffsetY, OnCenterOffsetChanged, (string t) => SetOperationHint(t))
+            {
+                Owner = this
+            };
+            _centerOffsetDlg.Closed += (s2, e2) => _centerOffsetDlg = null;
+            _centerOffsetDlg.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+            double dlgW = 400;
+            double dlgH = _centerOffsetDlg.DesiredSize.Height > 10 ? _centerOffsetDlg.DesiredSize.Height : 280;
+            PositionDialogOverLeftRegion(_centerOffsetDlg, dlgW, dlgH);
+            _centerOffsetDlg.Show();
+        }
+
+        /// <summary>中心偏移实时变化：更新当前关键词记忆（盖章时按此偏移基准放置，不影响已放置章）。</summary>
+        private void OnCenterOffsetChanged(int x, int y)
+        {
+            _centerOffsetX = x;
+            _centerOffsetY = y;
+            SaveCenterOffsetFromUi();
+        }
+
+        // 随机角度与位移（弹窗设置、随章记忆）：角度 0-360°、位移 0-200mm
+        private int _randomAngle = 0;
+        private int _randomOffsetMm = 0;
+        private RandomParamsWindow _randomDlg;
+
+        /// <summary>打开随机角度与位移弹窗（非模态，与盖章渲染弹窗同规范）：已打开时激活。</summary>
+        private void BtnRandomParams_Click(object sender, RoutedEventArgs e)
+        {
+            if (_randomDlg != null && _randomDlg.IsVisible)
+            {
+                _randomDlg.Activate();
+                return;
+            }
+            _randomDlg = new RandomParamsWindow(_randomAngle, _randomOffsetMm, OnRandomChanged, (string t) => SetOperationHint(t))
+            {
+                Owner = this
+            };
+            _randomDlg.Closed += (s2, e2) => _randomDlg = null;
+            _randomDlg.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+            double dlgW = 400;
+            double dlgH = _randomDlg.DesiredSize.Height > 10 ? _randomDlg.DesiredSize.Height : 280;
+            PositionDialogOverLeftRegion(_randomDlg, dlgW, dlgH);
+            _randomDlg.Show();
+        }
+
+        /// <summary>随机参数实时变化：更新当前章记忆（盖章时按此范围随机旋转/位移，不影响已放置章）。</summary>
+        private void OnRandomChanged(int angle, int offsetMm)
+        {
+            _randomAngle = angle;
+            _randomOffsetMm = offsetMm;
+            SaveCurrentStampParams();
         }
 
         // 盖章渲染四维上限缓存（UI 无直接控件，由弹窗修改、随印章记忆）
@@ -1194,6 +1409,7 @@ namespace PDFQFZ.WPF
         private int _textureSpot = 0;
         private int _textureRadial = 0;
         private int _textureCast = 0;
+        private int _texturePresetIndex = 0;   // 当前渲染参数号（0=自定义，1-4=参数N，随章记忆）
         private TextureSettingsWindow _textureDlg;
 
         /// <summary>盖章渲染勾选变化：未勾选时"设置参数"按钮置灰（与随机/去除白色背景交互一致）。</summary>
@@ -1201,6 +1417,10 @@ namespace PDFQFZ.WPF
         {
             UpdateTextureEnabled();
             SaveCurrentStampParams();
+            if (IsLoaded && !_suppressStampParamSave)
+            {
+                SetOperationHint("盖章渲染：随机叠加印泥浓淡、斑点、压印等质感效果，模拟真实盖章");
+            }
         }
 
         private void UpdateTextureEnabled()
@@ -1208,6 +1428,14 @@ namespace PDFQFZ.WPF
             bool on = chkTextureQuality.IsChecked == true;
             btnTextureSettings.IsEnabled = on;
             btnTextureSettings.Content = "盖章渲染";   // 文字始终显示，未勾选时仅置灰（与撤销放置按钮一致）
+        }
+
+        /// <summary>盖章取章：始终返回当前主章（子印章功能 V128 起删除，原随机选章逻辑存档于 备份/2026-09-11_子印章功能存档与删除）。</summary>
+        private Tuple<StampPickerItem, AppConfig.StampParams> PickPlacementStamp()
+        {
+            StampPickerItem primary = GetSelectedStampItem();
+            if (primary == null) return null;
+            return Tuple.Create(primary, LoadParamsForStampItem(primary));
         }
 
         /// <summary>滚动条：点击轨道（非滑块区域）直接跳到点击位置，而不是默认翻一页。</summary>
@@ -1248,7 +1476,9 @@ namespace PDFQFZ.WPF
             e.Handled = true;
         }
 
-        /// <summary>打开盖章渲染参数弹窗（非模态）：修改实时生效，可边调边在预览区盖章调试；已打开时激活。</summary>
+        /// <summary>打开盖章渲染参数弹窗（非模态）：修改实时生效，可边调边在预览区盖章调试；已打开时激活。
+        /// 打开前：若当前无选中参数，用当前 7 个渲染参数值与已保存的参数 1~4 比对，
+        /// 完全一致则自动恢复该参数选中（兜底记忆丢失，V136 修复），保证"当前参数"提示正确。</summary>
         private void BtnTextureSettings_Click(object sender, RoutedEventArgs e)
         {
             if (_textureDlg != null && _textureDlg.IsVisible)
@@ -1256,8 +1486,17 @@ namespace PDFQFZ.WPF
                 _textureDlg.Activate();
                 return;
             }
+            if (_texturePresetIndex < 1 || _texturePresetIndex > 4)
+            {
+                int detected = DetectTexturePresetFromCurrentValues();
+                if (detected != 0)
+                {
+                    _texturePresetIndex = detected;
+                }
+            }
             _textureDlg = new TextureSettingsWindow(_textureBrightness, _textureBlob, _textureGradient,
-                _textureWhite, _textureSpot, _textureRadial, _textureCast, OnTextureSettingsChanged)
+                _textureWhite, _textureSpot, _textureRadial, _textureCast, _texturePresetIndex,
+                OnTextureSettingsChanged, OnTexturePresetChanged, OnTextureSettingsHint)
             {
                 Owner = this
             };
@@ -1266,17 +1505,43 @@ namespace PDFQFZ.WPF
             _textureDlg.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
             double dlgW = 500;
             double dlgH = _textureDlg.DesiredSize.Height > 10 ? _textureDlg.DesiredSize.Height : 420;
-            System.Windows.Point tl = leftGrid.PointToScreen(new System.Windows.Point(0, 0));
-            double left = tl.X + (leftGrid.ActualWidth - dlgW) / 2.0;
-            double top = tl.Y + (this.ActualHeight - dlgH) / 2.0;
-            System.Windows.Rect wa = SystemParameters.WorkArea;
-            if (left < wa.Left) left = wa.Left;
-            if (top < wa.Top) top = wa.Top;
-            if (left + dlgW > wa.Right) left = wa.Right - dlgW;
-            if (top + dlgH > wa.Bottom) top = wa.Bottom - dlgH;
-            _textureDlg.Left = left;
-            _textureDlg.Top = top;
+            PositionDialogOverLeftRegion(_textureDlg, dlgW, dlgH);
             _textureDlg.Show();
+        }
+
+        /// <summary>用当前 7 个渲染参数值与已保存参数 1~4 比对，完全一致返回对应下标（0=无匹配）。</summary>
+        private int DetectTexturePresetFromCurrentValues()
+        {
+            int[] cur =
+            {
+                _textureBrightness, _textureBlob, _textureGradient,
+                _textureWhite, _textureSpot, _textureRadial, _textureCast
+            };
+            for (int i = 1; i <= 4; i++)
+            {
+                if (!AppConfig.TexPresetExists(i))
+                {
+                    continue;
+                }
+                int[] v = AppConfig.GetTexPreset(i);
+                if (v != null && v.Length == cur.Length)
+                {
+                    bool same = true;
+                    for (int k = 0; k < cur.Length; k++)
+                    {
+                        if (v[k] != cur[k])
+                        {
+                            same = false;
+                            break;
+                        }
+                    }
+                    if (same)
+                    {
+                        return i;
+                    }
+                }
+            }
+            return 0;
         }
 
         /// <summary>弹窗参数实时变化：更新当前章记忆，并把预览中已放置的章同步为新参数（种子不变），刷新预览。</summary>
@@ -1311,6 +1576,24 @@ namespace PDFQFZ.WPF
             }
         }
 
+        /// <summary>渲染参数号变化（弹窗内加载/保存/手动修改/恢复默认触发）：随当前章保存，并给操作反馈。
+        /// saved=true 表示保存到参数，false 表示加载参数或清选中。</summary>
+        private void OnTexturePresetChanged(int idx, bool saved)
+        {
+            _texturePresetIndex = idx;
+            SaveCurrentStampParams();
+            if (idx >= 1 && idx <= 4)
+            {
+                SetOperationHint(saved ? "已保存到参数" + idx : "已加载参数" + idx + "参数");
+            }
+        }
+
+        /// <summary>盖章渲染参数提示：弹窗内操作某参数时，操作提示区显示该参数的功能说明（操作哪个提示哪个）。</summary>
+        private void OnTextureSettingsHint(string text)
+        {
+            SetOperationHint(text);
+        }
+
         /// <summary>盖章渲染分布种子：每枚章盖章时独立随机（决定斑块/斑点位置，固定于本章）。</summary>
         private int NewTextureSeed()
         {
@@ -1339,8 +1622,8 @@ namespace PDFQFZ.WPF
                 RotationHandle = comboRotationHandle.SelectedIndex >= 0 ? comboRotationHandle.SelectedIndex : 0,
                 Opacity = TryParseInt(txtOpacity.Text, 0, 100, out int o) ? o : 60,
                 RandomParams = chkRandomParams.IsChecked == true,
-                RandomRange = TryParseInt(txtRandomRange.Text, 0, 90, out int rr) ? rr : 5,
-                RandomOffsetMm = TryParseInt(txtRandomOffsetMm.Text, 0, 500, out int ro) ? ro : 5,
+                RandomRange = _randomAngle,
+                RandomOffsetMm = _randomOffsetMm,
                 RemoveWhite = chkRemoveWhite.IsChecked == true,
                 Tolerance = TryParseInt(txtTolerance.Text, 0, 50, out int t) ? t : 20,
                 TextureQuality = chkTextureQuality.IsChecked == true,
@@ -1351,6 +1634,7 @@ namespace PDFQFZ.WPF
                 TextureSpot = _textureSpot,
                 TextureRadial = _textureRadial,
                 TextureCast = _textureCast,
+                TexturePresetIndex = _texturePresetIndex,
                 MaxSplit = _maxSplitUserModified
                     ? (TryParseInt(txtMaxSplit.Text, 1, 10000, out int ms) ? ms : 500)
                     : -1   // 未手动修改：-1 表示不更新印章记忆中的分割数
@@ -1411,8 +1695,8 @@ namespace PDFQFZ.WPF
             comboRotationHandle.SelectedIndex = (p.RotationHandle >= 0 && p.RotationHandle <= 1) ? p.RotationHandle : 0;
             txtOpacity.Text = p.Opacity.ToString();
             chkRandomParams.IsChecked = p.RandomParams;
-            txtRandomRange.Text = p.RandomRange.ToString();
-            txtRandomOffsetMm.Text = p.RandomOffsetMm.ToString();
+            _randomAngle = p.RandomRange;
+            _randomOffsetMm = p.RandomOffsetMm;
             UpdateRandomEnabled();
             chkRemoveWhite.IsChecked = p.RemoveWhite;
             txtTolerance.Text = p.Tolerance.ToString();
@@ -1424,6 +1708,7 @@ namespace PDFQFZ.WPF
             _textureSpot = p.TextureSpot;
             _textureRadial = p.TextureRadial;
             _textureCast = p.TextureCast;
+            _texturePresetIndex = p.TexturePresetIndex;
             UpdateTextureEnabled();
             if (p.MaxSplit > 0)
             {
@@ -1463,19 +1748,6 @@ namespace PDFQFZ.WPF
             }
         }
 
-        private void OnOutputDrop(object sender, DragEventArgs e)
-        {
-            e.Handled = true;
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
-            {
-                var files = e.Data.GetData(DataFormats.FileDrop) as string[];
-                if (files != null && files.Length > 0 && Directory.Exists(files[0]))
-                {
-                    txtOutputDir.Text = files[0];
-                }
-            }
-        }
-
         // ===================== 加载 PDF / 渲染预览 =====================
         private void ResetPreview()
         {
@@ -1489,10 +1761,11 @@ namespace PDFQFZ.WPF
             btnUndoAuto.IsEnabled = false;
             logText.Text = InitialHelpText;
             logContainsOnlyHelp = true;
+            _logPinToBottom = true;
             UpdatePlacementOperationHint();
         }
 
-        /// <summary>无 PDF 时加载内置调试 PDF（A4 白页 + "请上传 PDF 文件"），走真实 pdfium 渲染链路，
+        /// <summary>无 PDF 时加载内置调试 PDF（A4 白页 + "拖入或选择：PDF文件/文件夹"），走真实 pdfium 渲染链路，
         /// 预览区未加载用户文件也可盖章、缩放、拖动，用于调试盖章渲染参数。
         /// 调试页不进入用户文件列表，不会参与输出；调试章与正常章同用 stampPlacements（加载新文件/重置时自动清空）。</summary>
         private void ShowBlankDebugPage()
@@ -1503,7 +1776,6 @@ namespace PDFQFZ.WPF
                 if (string.IsNullOrEmpty(debugPath) || !File.Exists(debugPath))
                 {
                     _debugPageActive = false;
-                    previewPlaceholderViewbox.Visibility = Visibility.Visible;
                     return;
                 }
                 _debugPageActive = true;
@@ -1515,7 +1787,6 @@ namespace PDFQFZ.WPF
                 sourcePath = debugPath;
                 zoomPercent = 0;
                 zoomInitialized = false;
-                previewPlaceholderViewbox.Visibility = Visibility.Collapsed;
                 RelayoutPreview();
                 UpdatePageInfo();
                 UpdatePlacementOperationHint();
@@ -1523,7 +1794,6 @@ namespace PDFQFZ.WPF
             catch
             {
                 _debugPageActive = false;
-                previewPlaceholderViewbox.Visibility = Visibility.Visible;
                 previewImage.Visibility = Visibility.Collapsed;
                 overlayCanvas.Visibility = Visibility.Collapsed;
             }
@@ -1537,10 +1807,6 @@ namespace PDFQFZ.WPF
                 string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "PDFQFZ");
                 Directory.CreateDirectory(dir);
                 string path = System.IO.Path.Combine(dir, "debug_page.pdf");
-                if (File.Exists(path))
-                {
-                    return path;
-                }
                 using (var stream = System.Reflection.Assembly.GetExecutingAssembly()
                     .GetManifestResourceStream("PDFQFZ.WPF.assets.debug_page.pdf"))
                 {
@@ -1548,10 +1814,31 @@ namespace PDFQFZ.WPF
                     {
                         return null;
                     }
-                    using (var fs = File.Create(path))
+                    // 资源读入内存
+                    byte[] resBytes;
+                    using (var ms = new System.IO.MemoryStream())
                     {
-                        stream.CopyTo(fs);
+                        stream.CopyTo(ms);
+                        resBytes = ms.ToArray();
                     }
+                    // 缓存失效：磁盘缓存与嵌入资源内容一致才复用；不一致（版本更新/旧文字残留）则强制覆盖
+                    if (File.Exists(path))
+                    {
+                        byte[] diskBytes = File.ReadAllBytes(path);
+                        if (diskBytes.Length == resBytes.Length)
+                        {
+                            bool same = true;
+                            for (int i = 0; i < resBytes.Length; i++)
+                            {
+                                if (diskBytes[i] != resBytes[i]) { same = false; break; }
+                            }
+                            if (same)
+                            {
+                                return path;
+                            }
+                        }
+                    }
+                    File.WriteAllBytes(path, resBytes);
                 }
                 return path;
             }
@@ -1576,6 +1863,7 @@ namespace PDFQFZ.WPF
                 ReleasePdfResources();
                 logText.Text = InitialHelpText;   // 拖入新文件：预览与日志区都恢复初始帮助说明
                 logContainsOnlyHelp = true;
+                _logPinToBottom = true;
 
                 sourcePath = path;
                 pdfRenderer = PdfiumDocumentRenderer.Open(path);
@@ -1596,7 +1884,6 @@ namespace PDFQFZ.WPF
                 suppressCurrentFileEvent = false;
                 txtFileTotalPages.Text = "共 " + pageCount + " 页";
                 _debugPageActive = false;
-                previewPlaceholderViewbox.Visibility = Visibility.Collapsed;
                 previewImage.Visibility = Visibility.Visible;
                 overlayCanvas.Visibility = Visibility.Visible;
                 btnUndoAuto.IsEnabled = keepStampData
@@ -1611,9 +1898,8 @@ namespace PDFQFZ.WPF
             }
             catch (Exception ex)
             {
-                // 完整异常链（含 InnerException 底层原因）写入诊断日志 + 弹窗，便于定位引擎加载问题
+                // 完整异常链（含 InnerException 底层原因）弹窗提示，便于定位引擎加载问题
                 string chain = PDFQFZ.WPF.Services.PdfiumBootstrap.BuildExceptionChain(ex);
-                PDFQFZ.WPF.Services.PdfiumBootstrap.WriteDiag("加载 PDF 失败，完整异常链：" + Environment.NewLine + chain);
                 AppendLog("加载失败：" + ex.Message, true);
                 MessageBox.Show("加载 PDF 失败：" + Environment.NewLine + chain, "提示",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -2519,10 +2805,11 @@ namespace PDFQFZ.WPF
 
         private void AddPreviewStamp(float px, float py, string stampPath, int stampType, int pageNumber = 0)
         {
-            // 使用当前选中的印章，用该章记忆的参数（无记忆则用界面当前值）
-            StampPickerItem pick = GetSelectedStampItem();
-            if (pick == null) return;
-            AppConfig.StampParams sp = LoadParamsForStampItem(pick);
+            // 取章：当前主章（每个章用各自记忆的参数）
+            Tuple<StampPickerItem, AppConfig.StampParams> pickInfo = PickPlacementStamp();
+            if (pickInfo == null) return;
+            StampPickerItem pick = pickInfo.Item1;
+            AppConfig.StampParams sp = pickInfo.Item2;
             if (sp == null) return;
             int sizeMm = sp.Size;
             int currentOpacity = sp.Opacity;
@@ -2541,9 +2828,10 @@ namespace PDFQFZ.WPF
                 for (int page = specifiedPageRange.StartPage; page <= specifiedPageRange.EndPage; page++)
                 {
                     // 每个页面在放置时各自随机一次印章与位移（随机值固定进该页印章）
-                    StampPickerItem batchPick = GetSelectedStampItem();
-                    if (batchPick == null) break;
-                    AppConfig.StampParams batchSp = LoadParamsForStampItem(batchPick);
+                    Tuple<StampPickerItem, AppConfig.StampParams> bpInfo = PickPlacementStamp();
+                    if (bpInfo == null) break;
+                    StampPickerItem batchPick = bpInfo.Item1;
+                    AppConfig.StampParams batchSp = bpInfo.Item2;
                     if (batchSp == null) break;
                     GetRandomOffset(batchSp.RandomParams, batchSp.RandomOffsetMm, out float dxMm, out float dyMm);
                     stampPlacements.Add(sourcePath, page, px, py, batchPick.Path, batchSp.Size,
@@ -2601,7 +2889,8 @@ namespace PDFQFZ.WPF
         {
             try
             {
-                if (pdfRenderer == null || string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
+                // 调试页（未加载用户文件）视为未加载：提示先加载 PDF，不进入文字搜索（避免误报"图片型 PDF"）
+                if (_debugPageActive || pdfRenderer == null || string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
                 {
                     MessageBox.Show("请先加载 PDF 文件再放置印章。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
@@ -2801,10 +3090,11 @@ namespace PDFQFZ.WPF
             var addedPages = new List<int>();
             foreach (PdfTextMatch match in matches)
             {
-                // 使用当前选中的印章，用该章记忆的参数（无记忆则用界面当前值）
-                StampPickerItem pick = GetSelectedStampItem();
-                if (pick == null) break;
-                AppConfig.StampParams sp = LoadParamsForStampItem(pick);
+                // 取章：当前主章（每个章用各自记忆的参数）
+                Tuple<StampPickerItem, AppConfig.StampParams> pickInfo = PickPlacementStamp();
+                if (pickInfo == null) break;
+                StampPickerItem pick = pickInfo.Item1;
+                AppConfig.StampParams sp = pickInfo.Item2;
                 if (sp == null) break;
 
                 AutoStampPositionResult pos = AutoStampPositionCalculator.Calculate(
@@ -2857,11 +3147,8 @@ namespace PDFQFZ.WPF
 
             // 成功找到并完成盖章的文字才记入历史
             AppConfig.RecordAutoStampKeyword(keyword);
-            // 同步该词的中心偏移记忆（界面当前勾选与横纵值）
-            float coUiX, coUiY;
-            float.TryParse(txtCenterOffsetX.Text, out coUiX);
-            float.TryParse(txtCenterOffsetY.Text, out coUiY);
-            AppConfig.SetCenterOffsetForKeyword(keyword, chkCenterOffset.IsChecked == true, coUiX, coUiY);
+            // 同步该词的中心偏移记忆（界面当前勾选与弹窗横纵值）
+            AppConfig.SetCenterOffsetForKeyword(keyword, chkCenterOffset.IsChecked == true, _centerOffsetX, _centerOffsetY);
 
             RefreshPreviewOverlays();
 
@@ -2882,15 +3169,19 @@ namespace PDFQFZ.WPF
                 string kwDisplay = string.Join("，", contextKeywords);
                 string modeDisplay = requireAll ? "全部关键词（且）" : "任一关键词（或）";
                 AppendLog(string.Format(
-                    "按文字盖章完成：关键词“{0}”，共找到 {1} 处，其中 {2} 处附近有关键词，已在 {3} 盖章。关键词（共 {4} 个）：{5} | 匹配模式：{6}。右键单个章可删除，或点击“撤销放置”逐步撤销。",
-                    keyword, allMatches.Count, matches.Count, pageDisplay, contextKeywords.Length, kwDisplay, modeDisplay));
+                    "按文字盖章完成：关键词“{0}”，共找到 {1} 处，其中 {2} 处附近有关键词，已在 {3} 盖章。关键词（共 {4} 个）：{5} | 匹配模式：{6}。上下文示例：{7}。右键单个章可删除，或点击“撤销放置”逐步撤销。",
+                    keyword, allMatches.Count, matches.Count, pageDisplay, contextKeywords.Length, kwDisplay, modeDisplay,
+                    BuildContextSample(matches[0].Context)));
                 SetOperationHint(string.Format("按文字盖章完成：{0} 处，详见下方日志", matches.Count));
             }
             else
             {
+                string ctxInfo = useContextFilter && matches.Count > 0 && !string.IsNullOrEmpty(matches[0].Context)
+                    ? string.Format("上下文示例：{0}。", BuildContextSample(matches[0].Context))
+                    : "";
                 AppendLog(string.Format(
-                    "按文字盖章完成：关键词“{0}”，共找到 {1} 处，已在 {2} 盖章。右键单个章可删除，或点击“撤销放置”逐步撤销。",
-                    keyword, matches.Count, pageDisplay));
+                    "按文字盖章完成：关键词“{0}”，共找到 {1} 处，已在 {2} 盖章。{3}右键单个章可删除，或点击“撤销放置”逐步撤销。",
+                    keyword, matches.Count, pageDisplay, ctxInfo));
                 SetOperationHint(string.Format("按文字盖章完成：{0} 处，详见下方日志", matches.Count));
             }
             return new AutoPlaceFileResult { Success = true, Added = addedCount };
@@ -2944,6 +3235,14 @@ namespace PDFQFZ.WPF
             help.ShowDialog();
         }
 
+        /// <summary>把匹配上下文原文转为可读诊断文本：空格→·、换行→⏎、制表→⇥，超长截断（用于排查关键词匹配/忽略空白逻辑）。</summary>
+        private static string BuildContextSample(string ctx)
+        {
+            if (string.IsNullOrEmpty(ctx)) return "（无）";
+            string s = ctx.Replace(" ", "·").Replace("\t", "⇥").Replace("\r", "").Replace("\n", "⏎");
+            return s.Length > 60 ? s.Substring(0, 60) + "…" : s;
+        }
+
         /// <summary>解析“附近关键词”输入：按逗号/分号/空格/顿号分隔，去空白去重，返回非空词数组。</summary>
         private static string[] ParseContextKeywords(string input)
         {
@@ -2969,7 +3268,8 @@ namespace PDFQFZ.WPF
         // 指定范围页盖章
         private void OnSpecifiedPageClick()
         {
-            if (pdfRenderer == null || pageCount < 1)
+            // 调试页（未加载用户文件）视为未加载
+            if (_debugPageActive || pdfRenderer == null || pageCount < 1)
             {
                 MessageBox.Show("请先加载 PDF 文件。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
@@ -3009,11 +3309,18 @@ namespace PDFQFZ.WPF
                 return;
             }
 
+            // 调试页（未加载用户文件）不能输出，提示先加载 PDF
+            if (_debugPageActive || pdfRenderer == null || string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
+            {
+                MessageBox.Show("请先加载 PDF 文件。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
             // 盖章时自动收起印章参数和其他设置，给预览区留更多空间
             if (sealParamsContent.Visibility == Visibility.Visible)
-                ToggleFold(sealParamsContent, foldSealParamsArrow, foldSealParamsText, sealParamsHeaderGrid);
+                ToggleFold(sealParamsContent, foldSealParamsArrow, foldSealParamsText, sealParamsHeaderGrid, btnFoldSealParams);
             if (otherContent.Visibility == Visibility.Visible)
-                ToggleFold(otherContent, foldOtherArrow, foldOtherText, otherHeaderGrid);
+                ToggleFold(otherContent, foldOtherArrow, foldOtherText, otherHeaderGrid, btnFoldOther);
 
             // 汇总本次是否实际会产生盖章效果（骑缝章 / 数字签名 / 预览中已放置的章）
             int qfzType = SeamBusinessFromDisplay(comboSeam.SelectedIndex);
@@ -3199,6 +3506,102 @@ namespace PDFQFZ.WPF
             comboOutputQuality.IsEnabled = comboOutput.SelectedIndex == 0;
         }
 
+        // ==================== 输出文件名格式自定义（V132） ====================
+
+        /// <summary>从 AppConfig 静态字段构建命名选项（盖章输出时使用）。
+        /// 注意：RunStampCore 在后台线程执行，禁止在此读取 UI 控件（跨线程异常，V134 修复）；
+        /// AppConfig 字段由 OutputName_Changed（UI 线程）实时同步，后台线程读静态字段安全。</summary>
+        private OutputNamingOptions BuildOutputNamingOptions()
+        {
+            return new OutputNamingOptions
+            {
+                Mark = AppConfig.OutputNameMark ?? "",
+                BeforeName = AppConfig.OutputNamePos == 1,
+                SeqType = AppConfig.OutputNameSeqType,
+                Pad = AppConfig.OutputNamePad,
+                UseTimestamp = AppConfig.OutputNameTs,
+                TsFormat = AppConfig.OutputNameTsFormat
+            };
+        }
+
+        /// <summary>时间戳格式下拉索引 → 格式串。</summary>
+        private static string TsFormatFromIndex(int index)
+        {
+            switch (index)
+            {
+                case 1: return "yyyy-MM-dd";
+                case 2: return "yyyyMMdd-HHmm";
+                case 3: return "yyyy-MM-dd-HH-mm";
+                default: return "yyyyMMdd";
+            }
+        }
+
+        /// <summary>格式串 → 时间戳格式下拉索引（未知格式回 0）。</summary>
+        private static int TsFormatToIndex(string format)
+        {
+            switch (format)
+            {
+                case "yyyy-MM-dd": return 1;
+                case "yyyyMMdd-HHmm": return 2;
+                case "yyyy-MM-dd-HH-mm": return 3;
+                default: return 0;
+            }
+        }
+
+        /// <summary>时间戳勾选后格式下拉可选。</summary>
+        private void UpdateOutputNameTsEnabled()
+        {
+            if (comboOutputNameTsFormat == null || chkOutputNameTs == null) return;
+            comboOutputNameTsFormat.IsEnabled = chkOutputNameTs.IsChecked == true;
+        }
+
+        /// <summary>实时刷新输出文件名效果预览（用当前第一个源文件名，无则用示例名）。</summary>
+        private void UpdateOutputNamePreview()
+        {
+            if (txtOutputNamePreview == null) return;
+            try
+            {
+                string sample = GetFirstSourceDisplayName();
+                string first = OutputFileNamingPolicy.GetNextFileName(sample, BuildOutputNamingOptions(), Enumerable.Empty<string>());
+                // 第二次编号：把第一次结果视为已存在，模拟递增
+                string second = OutputFileNamingPolicy.GetNextFileName(sample, BuildOutputNamingOptions(),
+                    new[] { Path.GetFileName(first) });
+                txtOutputNamePreview.Text = "▸ 效果预览：" + first + "　再盖一次 → " + second;
+            }
+            catch (Exception ex)
+            {
+                txtOutputNamePreview.Text = "▸ 效果预览：（生成失败：" + ex.Message + "）";
+            }
+        }
+
+        /// <summary>效果预览的源文件名占位：固定为"《文件名》"，不随实际导入文件名变动（V133 起）。</summary>
+        private string GetFirstSourceDisplayName()
+        {
+            return "《文件名》";
+        }
+
+        /// <summary>输出命名控件变化：刷新预览 + 保存配置（启动赋值阶段 IsLoaded=false 不保存）。</summary>
+        private void OutputName_Changed()
+        {
+            if (!IsLoaded) return;
+            UpdateOutputNameTsEnabled();
+            UpdateOutputNamePreview();
+            try
+            {
+                AppConfig.OutputNameMark = txtOutputNameMark.Text.Trim();
+                AppConfig.OutputNamePos = comboOutputNamePos.SelectedIndex == 1 ? 1 : 0;
+                AppConfig.OutputNameSeqType = Math.Max(0, Math.Min(2, comboOutputNameSeqType.SelectedIndex));
+                AppConfig.OutputNamePad = Math.Max(1, Math.Min(3, comboOutputNamePad.SelectedIndex + 1));
+                AppConfig.OutputNameTs = chkOutputNameTs.IsChecked == true;
+                AppConfig.OutputNameTsFormat = TsFormatFromIndex(comboOutputNameTsFormat.SelectedIndex);
+                AppConfig.SaveUiConfig();
+            }
+            catch (Exception ex)
+            {
+                AppendLog("保存输出命名配置失败：" + ex.Message, true);
+            }
+        }
+
         private bool RunStampCore(StampOptions options, Bitmap seamImage, float xzbl,
             string src, string outDir, int djType, bool dirMode)
         {
@@ -3217,8 +3620,7 @@ namespace PDFQFZ.WPF
                     {
                         done++;
                         string source = fileInfo.FullName;
-                        string output = OutputFileNamingPolicy.GetNextOutputPath(outDir, source,
-                            AppConfig.FixStr, AppConfig.FixType == 1);
+                        string output = OutputFileNamingPolicy.GetNextOutputPath(outDir, source, BuildOutputNamingOptions());
                         AppendLog(string.Format("正在处理第 {0}/{1} 个文件：{2}", done, total, fileInfo.Name));
                         bool success = StampEngine.PDFWatermark(options, seamImage, xzbl,
                             source, output, source,
@@ -3251,8 +3653,7 @@ namespace PDFQFZ.WPF
                     {
                         done++;
                         string filename = Path.GetFileName(file);
-                        string output = OutputFileNamingPolicy.GetNextOutputPath(outDir, file,
-                            AppConfig.FixStr, AppConfig.FixType == 1);
+                        string output = OutputFileNamingPolicy.GetNextOutputPath(outDir, file, BuildOutputNamingOptions());
                         string actualOutput = output;
                         AppendLog(string.Format("正在处理第 {0}/{1} 个文件：{2}", done, total, filename));
                         bool success = StampEngine.PDFWatermark(options, seamImage, xzbl,
@@ -3366,15 +3767,37 @@ namespace PDFQFZ.WPF
             }
             // 追加文字后自动滚动到底部，确保最新内容可见。
             // 注意：文本追加后立即 ScrollToEnd 时，ScrollViewer 内部可能尚未完成内容测量，
-            // 布局完成后滚动位置会被重置回顶部；这里再延迟滚动一次到底，保证最终停在最新一行。
+            // 且自动换行/滚动条出现会改变视口导致 ExtentHeight 延迟变化，需多级延迟补滚；
+            // ScrollChanged 兜底逻辑见 LogScroll_ScrollChanged。
             if (logScroll != null)
             {
-                logScroll.UpdateLayout();
-                logScroll.ScrollToEnd();
-                Dispatcher.BeginInvoke(new Action(() =>
+                if (_logPinToBottom)
                 {
-                    if (logScroll != null) logScroll.ScrollToEnd();
-                }), System.Windows.Threading.DispatcherPriority.Loaded);
+                    logScroll.UpdateLayout();
+                    logScroll.ScrollToEnd();
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (logScroll != null) logScroll.ScrollToEnd();
+                    }), System.Windows.Threading.DispatcherPriority.Loaded);
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (logScroll != null) logScroll.ScrollToEnd();
+                    }), System.Windows.Threading.DispatcherPriority.Background);
+                }
+            }
+        }
+
+        /// <summary>日志滚动兜底：换行重排/滚动条出现使 ExtentHeight 变大且当前钉底时，自动补滚到底；
+        /// 用户手动向上滚动时取消钉底，追加日志不强拉回底部。
+        /// 容差 20px：重排发生时滚动位置尚未跟上属正常，按“在底部附近”处理并补滚。</summary>
+        private void LogScroll_ScrollChanged(object sender, ScrollChangedEventArgs e)
+        {
+            if (logScroll == null) return;
+            bool atBottom = e.ExtentHeight - (e.VerticalOffset + e.ViewportHeight) <= 20;
+            _logPinToBottom = atBottom;
+            if (_logPinToBottom && e.ExtentHeightChange > 0)
+            {
+                logScroll.ScrollToEnd();
             }
         }
 
@@ -3390,91 +3813,85 @@ namespace PDFQFZ.WPF
                 hasPreview, directoryMode, directorySelected, specifiedPending, pageStampEnabled, previewViewMode));
         }
 
-        // ===== 工具栏响应式布局：组间间距分档压缩 + 按钮文字缩短 =====
-        private const double ToolbarGapExpanded = 22;   // 展开档：组间空白充裕
-        private const double ToolbarGapCompact = 12;    // 紧凑档：略窄
-        private const double ToolbarGapMin = 8;         // 极限档：很窄
-        private bool toolbarSpacingBusy;                // 防重入：判定过程中忽略后续 SizeChanged
-        private int toolbarTextLevel = 0;               // 文字档：0=完整文字，1=双字，2=单字
+        // ===== 工具栏响应式布局（V154：三块独立压缩。每个功能区一个块，块宽由内部形态决定；文字优先逐级压缩，判定纯算术）=====
+        // 块1 翻页：文字(268) / 图标(176)；块2 缩放：文字(240) / 图标(148)；块3 视图：四字(252) / 两字(174) / 一字(132)。
+        // 块间：两条分隔线（V152 恢复），每处 = 线两侧各 8px 间距 + 1px 线 = 17px，两处共 34px。
+        // （V153：总页数控件固定宽 60→48；V154：txtPageTotal/txtPercent 右对齐，使分隔线在组间视觉居中；
+        //   视图两字档 50→54 防第二个字截断，块3 两字 162→174）
+        // 档位（文字优先，逐级压缩）：S0≥794 三块全文字+视图四字 | S1≥702 翻页→图标 | S2≥610 翻页+缩放→图标（视图四字）
+        //   | S3≥532 视图→两字 | S4≥490 视图→一字 | <490 保持最小，右侧裁剪兜底（与左侧设置区一致，不换行）。
+        // 全部元素固定宽（按钮 Width 76/30、视图 80/54/40），判定纯算术，零测量零布局判定——根治 V146-V150 的测量/振荡问题。
+        private bool toolbarSpacingBusy;      // 防重入：判定过程中忽略后续 SizeChanged
+        private bool tbB1Icon;                // 块1（翻页）按钮是否图标态
+        private bool tbB2Icon;                // 块2（缩放）按钮是否图标态
+        private int tbViewLevel;              // 块3（视图）文字档：0=四字 1=两字 2=一字
+        private const double ToolbarHysteresis = 12; // 降档滞回：切更紧凑档需跨过阈值-该值，防临界抖动
+        private static readonly double[] LevelThreshold = { 794, 702, 610, 532, 490 }; // 各档进入阈值（含块间距 34）
 
-        /// <summary>工具栏尺寸变化入口：只响应宽度变化，延迟到布局完成后再判定，防止换行→高度变化→再判定的振荡。</summary>
+        /// <summary>工具栏尺寸变化入口：只响应宽度变化，同步重算形态。</summary>
         private void OnToolbarSizeChanged(object sender, SizeChangedEventArgs e)
         {
             if (!e.WidthChanged || toolbarSpacingBusy) return;
             toolbarSpacingBusy = true;
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                try { UpdateToolbarSpacing(); }
-                finally { toolbarSpacingBusy = false; }
-            }), System.Windows.Threading.DispatcherPriority.Loaded);
+            try { UpdateToolbarSpacing(); }
+            finally { toolbarSpacingBusy = false; }
         }
 
-        /// <summary>设置组间空白（分隔线两侧到相邻组的距离），组内间距不动。</summary>
-        private void SetToolbarGap(double side)
+        /// <summary>按档位切换三个块的整体形态。块1/块2：文字↔图标（Content 不变，只切内部元素 Visibility，Width 固定 76/30）；
+        /// 块3：四字/两字/一字（Content 与 Width 同步切换，Width 固定使 DesiredSize 与内容无关，无测量缓存问题）。</summary>
+        private void SetToolbarStates(bool b1Icon, bool b2Icon, int viewLevel)
         {
-            txtPageTotal.Margin = new Thickness(0, 0, side, 0);
-            previewToolbarSep1.Margin = new Thickness(0, 0, side, 0);
-            txtPercent.Margin = new Thickness(0, 0, side, 0);
-            previewToolbarSep2.Margin = new Thickness(0, 0, side, 0);
+            if (tbB1Icon == b1Icon && tbB2Icon == b2Icon && tbViewLevel == viewLevel) return;
+            tbB1Icon = b1Icon; tbB2Icon = b2Icon; tbViewLevel = viewLevel;
+            double w1 = b1Icon ? 30 : 76;
+            SetDualButton(btnPrev, txtPrevText, pathPrev, !b1Icon, w1);
+            SetDualButton(btnNext, txtNextText, pathNext, !b1Icon, w1);
+            double w2 = b2Icon ? 30 : 76;
+            SetDualButton(btnZoomOut, txtZoomOutText, pathZoomOut, !b2Icon, w2);
+            SetDualButton(btnZoomIn, txtZoomInText, pathZoomIn, !b2Icon, w2);
+            double vw = viewLevel == 0 ? 80 : (viewLevel == 1 ? 54 : 40); // V154：两字档 50→54，防止第二个字渲染截断
+            btnFitPage.Content = viewLevel == 0 ? "单页视图" : (viewLevel == 1 ? "单页" : "单");
+            btnFitPage.Width = vw;
+            btnFitWidth.Content = viewLevel == 0 ? "放大视图" : (viewLevel == 1 ? "放大" : "放");
+            btnFitWidth.Width = vw;
+            btnFitDouble.Content = viewLevel == 0 ? "双页视图" : (viewLevel == 1 ? "双页" : "双");
+            btnFitDouble.Width = vw;
         }
 
-        /// <summary>切换按钮文字档位（0=全部完整；1=翻页/缩放缩短、视图完整；2=翻页/缩放缩短、视图双字；3=翻页/缩放缩短、视图单字），窗口恢复时还原。
-        /// 缩减优先级：先缩"上一页/下一页/缩小/放大"，最后才缩视图按钮。</summary>
-        private void SetToolbarText(int level)
+        private void SetDualButton(System.Windows.Controls.Button btn, System.Windows.Controls.TextBlock txt,
+                                   System.Windows.Shapes.Path path, bool text, double w)
         {
-            if (toolbarTextLevel == level) return;
-            toolbarTextLevel = level;
-            // 翻页/缩放组：level>=1 即缩短为符号
-            btnPrev.Content = level >= 1 ? "◀" : "上一页";
-            btnNext.Content = level >= 1 ? "▶" : "下一页";
-            btnZoomOut.Content = level >= 1 ? "−" : "缩小";
-            btnZoomIn.Content = level >= 1 ? "+" : "放大";
-            // 视图组三态：level<=1 完整文字；level==2 双字；level==3 单字
-            if (level <= 1)
-            {
-                btnFitPage.Content = "单页视图"; btnFitWidth.Content = "放大视图"; btnFitDouble.Content = "双页视图";
-            }
-            else if (level == 2)
-            {
-                btnFitPage.Content = "单页"; btnFitWidth.Content = "放大"; btnFitDouble.Content = "双页";
-            }
-            else
-            {
-                btnFitPage.Content = "单"; btnFitWidth.Content = "放"; btnFitDouble.Content = "双";
-            }
+            txt.Visibility = text ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+            path.Visibility = text ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
+            btn.Width = w;
         }
 
-        /// <summary>按可用宽度自动选档。判定方式：设置档位后强制立即布局（UpdateLayout），按 WrapPanel 实际高度是否仍为单行来判断，
-        /// 确保计算与屏幕显示一致。档位顺序（从宽到窄）：全部完整+22 → 全部完整+12 → 全部完整+8 → 翻页/缩放缩短+8
-        /// → 视图双字+8 → 视图单字+8 → WrapPanel 换行兜底。缩减优先级：先缩翻页/缩放按钮，最后缩视图按钮。</summary>
+        /// <summary>形态判定（V152）：按可用宽度算出目标档位（放得下且文字最多的档）。
+        /// 升档（目标更宽松=恢复文字）立即执行；降档（目标更紧凑）需跨过当前档阈值-滞回（防临界抖动）。
+        /// 全部元素固定宽，宽度变化由 Grid/StackPanel 引擎自动布局，无需 Measure。</summary>
         private void UpdateToolbarSpacing()
         {
-            if (previewToolbarWrap == null || previewToolbar.ActualWidth <= 0) return;
+            if (previewToolbar == null || previewToolbar.ActualWidth <= 0) return;
             double avail = previewToolbar.ActualWidth - 18; // Border Padding 左右各 8 + BorderThickness 左右各 1
             if (avail <= 40) return;
-            int[][] steps =
-            {
-                new[] { 0, 22 },  // 全部完整 + 展开
-                new[] { 0, 12 },  // 全部完整 + 紧凑
-                new[] { 0, 8 },   // 全部完整 + 极限
-                new[] { 1, 8 },   // 翻页/缩放缩短（视图仍完整）
-                new[] { 2, 8 },   // 视图双字
-                new[] { 3, 8 }    // 视图单字
-            };
-            foreach (var st in steps)
-            {
-                SetToolbarGap(st[1]);
-                SetToolbarText(st[0]);
-                previewToolbarWrap.UpdateLayout();
-                if (IsToolbarSingleRow()) return;
-            }
-            // 全部放不下 → 保持视图单字+8，由 WrapPanel 自动换行兜底
-        }
 
-        /// <summary>工具栏是否为单行：WrapPanel 单行高约 26，两行高约 52+，以 40 为界。</summary>
-        private bool IsToolbarSingleRow()
-        {
-            return previewToolbarWrap.ActualHeight > 0 && previewToolbarWrap.ActualHeight <= 40;
+            int want = 0;
+            while (want < LevelThreshold.Length - 1 && avail < LevelThreshold[want]) want++;
+
+            // 由当前状态反推当前档位
+            int cl;
+            if (tbViewLevel == 2) cl = 4;
+            else if (tbViewLevel == 1) cl = 3;
+            else if (tbB1Icon && tbB2Icon) cl = 2;
+            else if (tbB1Icon) cl = 1;
+            else cl = 0;
+
+            // V152 修正：升档（want<cl，目标更宽松）立即切换；降档（want>cl，目标更紧凑）带滞回
+            if (want < cl || (want > cl && avail < LevelThreshold[cl] - ToolbarHysteresis))
+            {
+                SetToolbarStates(want >= 1, want >= 2, want >= 3 ? (want == 4 ? 2 : 1) : 0);
+            }
+            previewToolbarInner.UpdateLayout(); // 一次布局应用本帧（若形态切换过）
         }
 
         /// <summary>操作提示行（左下角顶部固定行）：显示最新一条操作说明/反馈/进度，新替换旧；isError 时红色。</summary>
@@ -3501,22 +3918,12 @@ namespace PDFQFZ.WPF
                 if (leftPanelColumn == null) return;
                 AppConfig.LeftPanelWidth = (int)Math.Round(leftPanelColumn.ActualWidth);
                 AppConfig.SaveLeftPanelWidth();
-                try
-                {
-                    System.IO.File.AppendAllText(
-                        System.IO.Path.Combine(AppContext.BaseDirectory, "splitter_diag.log"),
-                        "[" + DateTime.Now.ToString("HH:mm:ss") + "] 拖动保存: ActualWidth=" + leftPanelColumn.ActualWidth + "\r\n");
-                }
-                catch
-                {
-                }
             }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
         /// <summary>启动时恢复上次拖动的左栏宽度（限制在合理范围，避免窗口过窄时挤压预览区）。</summary>
         private void RestoreLeftPanelWidth()
         {
-            var diag = new System.Text.StringBuilder();
             try
             {
                 if (leftPanelColumn == null || AppConfig.LeftPanelWidth <= 0) return;
@@ -3524,20 +3931,9 @@ namespace PDFQFZ.WPF
                 double maxLeft = Math.Max(minLeft, this.ActualWidth * 0.6);
                 double w = Math.Max(minLeft, Math.Min(AppConfig.LeftPanelWidth, maxLeft));
                 leftPanelColumn.Width = new GridLength(w);
-                diag.Append("[" + DateTime.Now.ToString("HH:mm:ss") + "] 恢复左栏: 配置=" + AppConfig.LeftPanelWidth
-                    + ", 窗口宽=" + this.ActualWidth + ", min=" + minLeft + ", max=" + maxLeft
-                    + ", 设置=" + w + ", 设置后ActualWidth=" + leftPanelColumn.ActualWidth + "\r\n");
             }
-            finally
+            catch
             {
-                try
-                {
-                    System.IO.File.AppendAllText(
-                        System.IO.Path.Combine(AppContext.BaseDirectory, "splitter_diag.log"), diag.ToString());
-                }
-                catch
-                {
-                }
             }
         }
 
@@ -3597,27 +3993,46 @@ namespace PDFQFZ.WPF
                 scrollHintTop.Visibility = canScrollUp ? Visibility.Visible : Visibility.Collapsed;
         }
 
+        /// <summary>设置区理想高度缓存：按"3按文字盖章展开、4印章参数收起、5其他设置收起"时内容完整显示的高度测量一次。</summary>
+        private double _settingsIdealHeight = -1;
+
         /// <summary>
-        /// 左栏上下两区高度分配（严格顺序）：设置区优先长高，直到内容完全显示（无滚动条）；
-        /// 内容显示全之后，窗口继续升高的空间才全部给提示区。窗口高度不足时，设置区压缩为滚动区，
-        /// 提示区保持 190px 保证初始 7 行说明可读。
+        /// 左栏上下两区高度分配（固定阈值，只依赖窗口高度一个变量，不随折叠/内容变化重算）：
+        /// 拉高时设置区优先长到理想高度，封顶后剩余空间才给日志区（日志区随窗口继续拉高而变高）；
+        /// 压缩时若日志区高于最小高度则先压缩日志区，日志区到达最小高度后压缩全部落在设置区（设置区有滚动条，不怕压缩）。
+        /// 可用空间直接读 leftGrid 布局后的实际高度（= 窗口客户区 - 外框顶部边距），不再按固定值估算。
         /// </summary>
         private void UpdateSettingsHeight()
         {
             if (settingsRow == null || logRow == null || settingsContent == null || leftGrid == null) return;
-            double padV = settingsScroll.Padding.Top + settingsScroll.Padding.Bottom; // ScrollViewer 上下内边距
-            double contentH = settingsContent.ActualHeight + padV; // 内容真实高度 + 内边距，行高达到该值即无滚动条
-            if (contentH <= 1) return;
-            const double fixedRows = 50 + 1; // 按钮行(Auto) + 分隔线(1)
-            const double minLog = 190;       // 提示区最小高度（容纳初始 7 行说明）
-            // 关键：必须用窗口客户区高度减去左栏 Border 上下边距（MainWindow.xaml: Margin="0,14,0,14"）作为可用空间。
-            // 不能用 leftGrid.ActualHeight——它等于内部行高的总和（Border 按内容排列 Grid），窗口缩小后行高不变它就
-            // 不变，用它计算会把"放大后的行高"永远当成可用空间，导致缩小后无法恢复（死锁）。
-            double space = Math.Max(0, this.ActualHeight - 28 - fixedRows);
-            // 设置区优先：先满足内容全显示；空间不足时至少留出提示区最小高度
-            double targetSettings = Math.Min(contentH, Math.Max(0, space - minLog));
-            double targetLog = space - targetSettings;
-            if (targetLog < minLog) { targetLog = minLog; targetSettings = space - minLog; }
+            EnsureSettingsIdealHeight();
+            const double minLog = 300; // 日志区最小高度（操作提示蓝条 + 日志文字框），保证初始 7 条说明完整可读
+            // 固定行：盖章按钮行(Auto) + 分隔线(1)，布局完成后读实际高度，比估算值准
+            double fixedRows = leftGrid.RowDefinitions.Count > 3
+                ? leftGrid.RowDefinitions[1].ActualHeight + leftGrid.RowDefinitions[2].ActualHeight
+                : 51;
+            // 可用空间 = 窗口真实客户区高度（rootGrid 撑满客户区，不受 leftGrid 行高反向影响）
+            // 之前误用 leftGrid.ActualHeight：leftGrid 高度被自身 Pixel 行总和撑住，窗口变矮时保持旧值，
+            // 导致 space 不变、行高永不更新（死锁），日志区底部溢出被窗口裁掉。
+            double frameBorder = leftFrame == null ? 0
+                : leftFrame.BorderThickness.Top + leftFrame.BorderThickness.Bottom;
+            double space = Math.Max(0, rootGrid.ActualHeight - frameBorder - fixedRows);
+            if (space <= 0) return;
+            double ideal = _settingsIdealHeight > 1 ? _settingsIdealHeight : Math.Max(0, space - minLog);
+
+            double targetSettings, targetLog;
+            if (space >= ideal + minLog)
+            {
+                // 窗口足够高：设置区封顶到理想高度，剩余全部给日志区
+                targetSettings = ideal;
+                targetLog = space - ideal;
+            }
+            else
+            {
+                // 空间不足：日志区保底最小高度，压缩全部落在设置区（设置区有滚动条）
+                targetLog = minLog;
+                targetSettings = space - minLog;
+            }
             if (targetSettings < 0) { targetSettings = 0; targetLog = space; }
 
             bool changed =
@@ -3630,6 +4045,99 @@ namespace PDFQFZ.WPF
                 settingsRow.Height = new GridLength(targetSettings);
                 logRow.Height = new GridLength(targetLog);
             }
+        }
+
+        /// <summary>
+        /// 布局回归测试（/layouttest 启动）：遍历预设窗口高度，断言：
+        /// ① 日志区最小高度 300 始终保底；② 行高总和不超过窗口客户区（不溢出）；
+        /// ③ 最低窗口高度下日志区恰为 300；④ 高窗口下设置区封顶到理想高度。
+        /// 结果写运行目录 layout_test.log，退出前恢复原窗口尺寸。
+        /// </summary>
+        private void RunLayoutTest()
+        {
+            double initW = Width, initH = Height, initT = Top, initL = Left;
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("PDFQFZ 布局回归测试 " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                sb.AppendLine("窗口 MinHeight=" + MinHeight.ToString("F0") + " MinWidth=" + MinWidth.ToString("F0")
+                              + " | 设置区理想高度(3展开/4,5收起)=" + _settingsIdealHeight.ToString("F0"));
+                double[] heights = { 680, 850, 1030, 1200, 1500 };
+                int failCount = 0;
+                foreach (double h in heights)
+                {
+                    Height = h;
+                    WaitForLayout();
+                    double winH = ActualHeight, rootH = rootGrid.ActualHeight;
+                    double sH = settingsRow.ActualHeight, r1 = leftGrid.RowDefinitions[1].ActualHeight,
+                           r2 = leftGrid.RowDefinitions[2].ActualHeight, lH = logRow.ActualHeight;
+                    double sum = sH + r1 + r2 + lH;
+                    bool logMinOk = lH >= 299.5;
+                    bool noOverflow = sum <= rootH + 1.5;
+                    bool lowOk = h <= 700 ? Math.Abs(lH - 300) <= 2 : true;
+                    bool highOk = h >= 1400 ? Math.Abs(sH - _settingsIdealHeight) <= 10 : true;
+                    bool pass = logMinOk && noOverflow && lowOk && highOk;
+                    if (!pass) failCount++;
+                    sb.AppendLine($"[{(pass ? "PASS" : "FAIL")}] 窗口H={h:F0}(实际{winH:F0}) rootGridH={rootH:F0} " +
+                        $"设置区={sH:F0} 固定行={r1:F0}+{r2:F0} 日志区={lH:F0} 总和={sum:F0} | " +
+                        $"日志>=300:{logMinOk} 无溢出:{noOverflow} 最低保底:{lowOk} 高窗封顶:{highOk}");
+                }
+                sb.AppendLine(failCount == 0 ? "== 全部通过 ==" : "== 存在失败项: " + failCount + " ==");
+                System.IO.File.WriteAllText(
+                    System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "layout_test.log"), sb.ToString());
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    System.IO.File.AppendAllText(
+                        System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "layout_test.log"),
+                        "异常: " + ex + Environment.NewLine);
+                }
+                catch { }
+            }
+            finally
+            {
+                // 恢复初始窗口尺寸后关闭，避免测试尺寸被写入用户配置
+                Width = initW; Height = initH; Top = initT; Left = initL;
+                WaitForLayout();
+                Close();
+            }
+        }
+
+        /// <summary>等待布局与 Loaded 优先级的 UpdateSettingsHeight 执行完成（Background 优先级低于 Loaded）。</summary>
+        private void WaitForLayout()
+        {
+            Dispatcher.Invoke(new Action(() => { }), System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        /// <summary>
+        /// 静默测量一次设置区理想高度。若当前折叠状态恰好是"3展开、4、5收起"则直接读取，零切换零闪烁；
+        /// 否则临时切到该组合读取内容高度后立即恢复（毫秒级、一次性的，ApplyFoldState 无副作用）。
+        /// </summary>
+        private void EnsureSettingsIdealHeight()
+        {
+            if (_settingsIdealHeight > 1 || settingsContent == null || settingsScroll == null) return;
+            double padV = settingsScroll.Padding.Top + settingsScroll.Padding.Bottom;
+            bool alreadyIdeal = AppConfig.FoldAutoText == 1 && AppConfig.FoldSealParams != 1 && AppConfig.FoldOther != 1;
+            if (!alreadyIdeal)
+            {
+                bool a = AppConfig.FoldAutoText == 1, s = AppConfig.FoldSealParams == 1, o = AppConfig.FoldOther == 1;
+                ApplyFoldState(autoTextContent, foldAutoTextArrow, foldAutoTextText, autoTextHeaderGrid, btnFoldAutoText, true);
+                ApplyFoldState(sealParamsContent, foldSealParamsArrow, foldSealParamsText, sealParamsHeaderGrid, btnFoldSealParams, false);
+                ApplyFoldState(otherContent, foldOtherArrow, foldOtherText, otherHeaderGrid, btnFoldOther, false);
+                settingsContent.UpdateLayout();
+                _settingsIdealHeight = settingsContent.DesiredSize.Height + padV;
+                ApplyFoldState(autoTextContent, foldAutoTextArrow, foldAutoTextText, autoTextHeaderGrid, btnFoldAutoText, a);
+                ApplyFoldState(sealParamsContent, foldSealParamsArrow, foldSealParamsText, sealParamsHeaderGrid, btnFoldSealParams, s);
+                ApplyFoldState(otherContent, foldOtherArrow, foldOtherText, otherHeaderGrid, btnFoldOther, o);
+                settingsContent.UpdateLayout();
+            }
+            else
+            {
+                _settingsIdealHeight = settingsContent.DesiredSize.Height + padV;
+            }
+            if (_settingsIdealHeight <= 1) _settingsIdealHeight = 600; // 兜底，避免极端情况死循环
         }
 
         protected override void OnClosed(EventArgs e)

@@ -1,0 +1,12 @@
+<Window x:Class="PDFQFZ.WPF.ConfirmDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="确认"
+        Width="420" SizeToContent="Height" WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize" ShowInTaskbar="False"
+        Background="{StaticResource Color.WindowBg}" FontFamily="{StaticResource Font.App}" FontSize="12.5">
+    <StackPanel Margin="16">
+        <TextBlock x:Name="txtMsg" TextWrapping="Wrap" MaxWidth="380" Margin="0,0,0,12" />
+        <StackPanel x:Name="btnPanel" Orientation="Horizontal" HorizontalAlignment="Right" />
+    </StackPanel>
+</Window>

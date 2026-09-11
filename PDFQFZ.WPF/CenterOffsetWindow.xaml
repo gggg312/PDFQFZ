@@ -1,0 +1,25 @@
+﻿<Window x:Class="PDFQFZ.WPF.CenterOffsetWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:PDFQFZ.WPF.Controls"
+        Title="中心偏移"
+        Width="300" MinWidth="280" MinHeight="220"
+        SizeToContent="Height" ResizeMode="CanResize"
+        WindowStartupLocation="Manual" ShowInTaskbar="False"
+        Background="{StaticResource Color.WindowBg}" FontFamily="{StaticResource Font.App}" FontSize="12.5">
+    <StackPanel Margin="16">
+        <!-- 功能块：中心偏移（两个拖动条：横向/纵向偏移 ±500mm，实时生效保存当前搜索文字） -->
+        <Border Style="{StaticResource Card}">
+            <StackPanel>
+                <TextBlock Text="中心偏移" Style="{StaticResource SectionTitle}" />
+                <StackPanel Margin="0,10,0,0">
+                    <controls:NumericSliderRow x:Name="rowOffsetX" Title="横向偏移（mm）" Description="盖章到文字中心的左右偏移" Minimum="-100" Maximum="100" Margin="0,0,0,10" />
+                    <controls:NumericSliderRow x:Name="rowOffsetY" Title="纵向偏移（mm）" Description="盖章到文字中心的上下偏移" Minimum="-100" Maximum="100" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+        <!-- 底部说明：盖章中心偏移的距离 -->
+        <TextBlock Text="设置盖章位置相对识别点的偏移距离（横向正值向右、纵向正值向下）。"
+                   Foreground="{StaticResource Color.TextSecondary}" TextWrapping="Wrap" Margin="0,10,0,0" />
+    </StackPanel>
+</Window>

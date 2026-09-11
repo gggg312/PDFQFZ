@@ -19,6 +19,11 @@ namespace PDFQFZ.WPF.Controls
             DependencyProperty.Register("Title", typeof(string), typeof(NumericSliderRow),
                 new PropertyMetadata(""));   // 显示由 XAML Binding 负责，见 §0.7 初始化规范
 
+        /// <summary>功能说明文字（标题下小灰字，§4.12 拖动条规范 V141）：为空自动隐藏。</summary>
+        public static readonly DependencyProperty DescriptionProperty =
+            DependencyProperty.Register("Description", typeof(string), typeof(NumericSliderRow),
+                new PropertyMetadata(""));
+
         public static readonly DependencyProperty ValueProperty =
             DependencyProperty.Register("Value", typeof(double), typeof(NumericSliderRow),
                 new PropertyMetadata(0.0, (d, e) => ((NumericSliderRow)d).OnValuePropChanged((double)e.NewValue)));
@@ -35,6 +40,7 @@ namespace PDFQFZ.WPF.Controls
         public event EventHandler ValueChanged;
 
         private bool _internal;   // 防回环
+        private double _lastNotified = double.NaN;   // 上次已广播的值：相同值不广播（去重初始化假触发）
 
         public NumericSliderRow()
         {
@@ -52,6 +58,12 @@ namespace PDFQFZ.WPF.Controls
         {
             get { return (string)GetValue(TitleProperty); }
             set { SetValue(TitleProperty, value); }
+        }
+
+        public string Description
+        {
+            get { return (string)GetValue(DescriptionProperty); }
+            set { SetValue(DescriptionProperty, value); }
         }
 
         public double Value
@@ -96,7 +108,7 @@ namespace PDFQFZ.WPF.Controls
             {
                 _internal = false;
             }
-            ValueChanged?.Invoke(this, EventArgs.Empty);
+            NotifyValueChanged();
         }
 
         /// <summary>滑块拖动 → 同步数值框并通知（以 Slider 实际值为准，防 DP 不同步）。</summary>
@@ -116,6 +128,23 @@ namespace PDFQFZ.WPF.Controls
             {
                 _internal = false;
             }
+            NotifyValueChanged();
+        }
+
+        /// <summary>
+        /// 值变化去重广播：仅当数值与上次广播值不同才触发 ValueChanged。
+        /// 背景（V140）：窗口 Show 后 Slider/TextBox 初始化（Loaded/模板应用）会回写一次相同值，
+        /// 旧实现无条件广播被当作"用户手动修改"，导致弹窗内"参数选中态"刚恢复即被清除。
+        /// 真实操作值必然变化（30→35→40 均广播；拖回 35 时上次广播 40，仍广播），不受影响。
+        /// </summary>
+        private void NotifyValueChanged()
+        {
+            double v = Value;
+            if (v == _lastNotified)
+            {
+                return;
+            }
+            _lastNotified = v;
             ValueChanged?.Invoke(this, EventArgs.Empty);
         }
 

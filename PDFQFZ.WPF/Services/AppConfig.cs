@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using PDFQFZ.Library;
 
 namespace PDFQFZ.WPF.Services
@@ -47,9 +48,17 @@ namespace PDFQFZ.WPF.Services
         public static int YzIndex = -1;       // 印章索引（历史兼容，WPF 以路径为准）
         public static string SignText = "";   // 签名文本/证书名
         public static string Password = "";   // 签名密码
-        public static int FixType = 0;        // 输出后缀类型
-        public static string FixStr = "";     // 输出后缀文本
+        public static int FixType = 0;        // 输出后缀类型（V132 起由 OutputName* 接管，仅用于旧配置迁移）
+        public static string FixStr = "";     // 输出后缀文本（V132 起由 OutputName* 接管，仅用于旧配置迁移）
         public static string FixStr2 = "_加密"; // 加密后缀
+
+        // ---------- 输出文件名格式自定义（V132 新增；旧 fixStr/fixType 自动迁移） ----------
+        public static string OutputNameMark = "已盖章V";   // 命名文字（含用户自定义前缀，如"已盖章V"，编号直接接数字/字母）
+        public static int OutputNamePos = 0;               // 标记位置：0=文件名后，1=文件名前
+        public static int OutputNameSeqType = 0;           // 递增类型：0=数字 1、2、3，1=大写字母 A、B、C，2=小写字母 a、b、c
+        public static int OutputNamePad = 1;               // 编号位数：1/2/3（数字补零；字母不补）
+        public static bool OutputNameTs = false;           // 是否插入时间戳（插在命名文字之后、编号之前）
+        public static string OutputNameTsFormat = "yyyyMMdd"; // 时间戳格式
         public static string SignBuiltInPath = "";
         public static string SignBuiltInPass = "";
         public static string SignCustomPath = "";
@@ -68,12 +77,14 @@ namespace PDFQFZ.WPF.Services
         public static string ContextKeywords = "盖章,公章"; // 附近关键词，逗号分隔
         public static int ContextRange = 10;            // 上下文范围（字，默认10）
         public static int ContextMatch = 0;             // 0=任一关键词（或），1=全部关键词（且）
-        public static bool ContextExcludeSpaces = false; // 上下文范围是否排除空格（默认关闭=空格计入）
+        public static bool ContextExcludeSpaces = false; // 上下文范围是否忽略空白（默认关闭=空格/换行等空白计入范围额度）
 
         // 左侧区域折叠状态（1=展开，0=收起；按文字盖章默认收起，印章参数/其他设置默认折叠，关闭时保存）
         public static int FoldAutoText = 0;
         public static int FoldSealParams = 0;
         public static int FoldOther = 0;
+        public static string OutputDir = "";   // V145：锁定的输出目录（长期指定，跨启动记忆）
+        public static int OutputDirLocked = 0; // V145：输出目录锁定 0否/1是
 
         public static string IniPath
         {
@@ -159,6 +170,28 @@ namespace PDFQFZ.WPF.Services
                 FixType = ini.GetIniInt(Section, "fixType", FixType);
                 FixStr = Content(ini, "fixStr", FixStr);
                 FixStr2 = Content(ini, "fixStr2", FixStr2);
+                // V132：输出文件名格式自定义。outputNameInit 标志不存在时做一次旧规则迁移：
+                // 旧规则 = 标记文字 + V + 数字编号，位置由 fixType 决定；fixStr 空则旧默认"已盖章"。
+                // 迁移后保存会写入 outputNameInit=1，此后用户把命名文字清空也不触发迁移。
+                bool nameInitialized = ini.GetIniInt(Section, "outputNameInit", 0) == 1;
+                string onMark = Content(ini, "outputNameMark", "");
+                if (!nameInitialized)
+                {
+                    string oldMark = string.IsNullOrWhiteSpace(FixStr) ? "已盖章" : FixStr.Trim();
+                    OutputNameMark = oldMark + "V";
+                    OutputNamePos = FixType == 1 ? 1 : 0;
+                }
+                else
+                {
+                    OutputNameMark = onMark;
+                    OutputNamePos = ini.GetIniInt(Section, "outputNamePos", 0);
+                }
+                OutputNameSeqType = ini.GetIniInt(Section, "outputNameSeqType", 0);
+                OutputNamePad = ini.GetIniInt(Section, "outputNamePad", 1);
+                if (OutputNamePad < 1) OutputNamePad = 1;
+                if (OutputNamePad > 3) OutputNamePad = 3;
+                OutputNameTs = ini.GetIniInt(Section, "outputNameTs", 0) == 1;
+                OutputNameTsFormat = Content(ini, "outputNameTsFormat", "yyyyMMdd");
                 SignBuiltInPath = Content(ini, "signBuiltInPath", SignBuiltInPath);
                 SignBuiltInPass = Content(ini, "signBuiltInPass", SignBuiltInPass);
                 SignCustomPath = Content(ini, "signCustomPath", SignCustomPath);
@@ -187,6 +220,9 @@ namespace PDFQFZ.WPF.Services
             ContextExcludeSpaces = ini.GetIniInt(Section, "contextExcludeSpaces", 0) == 1;
                 ContextFilterEnabled = ini.GetIniInt(Section, "contextFilterEnabled", 0) == 1;
                 FoldAutoText = ini.GetIniInt(Section, "foldAutoText", FoldAutoText);
+                // V145：输出目录锁定（长期指定目录不随输入文件自动调整）
+                OutputDir = Content(ini, "outputDir", OutputDir);
+                OutputDirLocked = ini.GetIniInt(Section, "outputDirLocked", 0);
                 FoldSealParams = ini.GetIniInt(Section, "foldSealParams", FoldSealParams);
                 FoldOther = ini.GetIniInt(Section, "foldOther", FoldOther);
             }
@@ -252,6 +288,14 @@ namespace PDFQFZ.WPF.Services
                 ini.WriteIniInt(Section, "yzIndex", YzIndex);
                 ini.WriteIniString(Section, "fixStr", FixStr);
                 ini.WriteIniString(Section, "fixStr2", FixStr2);
+                // V132：输出文件名格式自定义
+                ini.WriteIniInt(Section, "outputNameInit", 1);
+                ini.WriteIniString(Section, "outputNameMark", OutputNameMark ?? "");
+                ini.WriteIniInt(Section, "outputNamePos", OutputNamePos);
+                ini.WriteIniInt(Section, "outputNameSeqType", OutputNameSeqType);
+                ini.WriteIniInt(Section, "outputNamePad", OutputNamePad);
+                ini.WriteIniInt(Section, "outputNameTs", OutputNameTs ? 1 : 0);
+                ini.WriteIniString(Section, "outputNameTsFormat", OutputNameTsFormat ?? "yyyyMMdd");
                 ini.WriteIniString(Section, "lastStampImagePath", LastStampImagePath);
                 if (LastSelectedStampNames != null && LastSelectedStampNames.Count > 0)
                     ini.WriteIniString(Section, "lastSelectedStampNames", string.Join(";", LastSelectedStampNames));
@@ -262,6 +306,9 @@ namespace PDFQFZ.WPF.Services
                 ini.WriteIniInt(Section, "contextMatch", ContextMatch);
             ini.WriteIniInt(Section, "contextExcludeSpaces", ContextExcludeSpaces ? 1 : 0);
                 ini.WriteIniInt(Section, "contextFilterEnabled", ContextFilterEnabled ? 1 : 0);
+                // V145：输出目录锁定
+                ini.WriteIniString(Section, "outputDir", OutputDir ?? "");
+                ini.WriteIniInt(Section, "outputDirLocked", OutputDirLocked);
             }
             catch
             {
@@ -427,17 +474,29 @@ namespace PDFQFZ.WPF.Services
             }
         }
 
-        /// <summary>按显示名删除指定印章条目（大小写不敏感）。</summary>
+        /// <summary>按显示名删除指定印章条目（大小写不敏感）。
+        /// 级联：删除参数节、库内图片（非库内文件不删）。</summary>
         public static void RemoveStampEntry(string displayName)
         {
             if (string.IsNullOrWhiteSpace(displayName)) return;
             try
             {
+                string key = displayName.Trim();
+                // 先取该章路径（显示名唯一；用于判断是否库内文件）
+                string mainPath = LoadStampEntries()
+                    .FirstOrDefault(e => string.Equals(e.DisplayName, key, StringComparison.OrdinalIgnoreCase))?.Path;
+
                 List<StampEntry> entries = LoadStampEntries();
-                entries.RemoveAll(e => string.Equals(e.DisplayName, displayName.Trim(), StringComparison.OrdinalIgnoreCase));
+                entries.RemoveAll(e => string.Equals(e.DisplayName, key, StringComparison.OrdinalIgnoreCase));
                 SaveStampEntriesInternal(entries);
-                LastSelectedStampNames.RemoveAll(n => string.Equals(n, displayName.Trim(), StringComparison.OrdinalIgnoreCase));
-                RemoveStampParamsSection(displayName.Trim());
+                LastSelectedStampNames.RemoveAll(n => string.Equals(n, key, StringComparison.OrdinalIgnoreCase));
+                RemoveStampParamsSection(key);
+
+                // 删除该章库内图片（若为库内文件）
+                if (!string.IsNullOrWhiteSpace(mainPath) && IsInLibrary(mainPath))
+                {
+                    DeleteLibraryFile(mainPath);
+                }
             }
             catch
             {
@@ -612,6 +671,115 @@ namespace PDFQFZ.WPF.Services
             if (string.IsNullOrWhiteSpace(displayName)) return false;
             return LoadStampEntries().Exists(e =>
                 string.Equals(e.DisplayName, displayName.Trim(), StringComparison.OrdinalIgnoreCase));
+        }
+
+        // ---------- 印章库（V82：印章图片统一复制进 EXE 同目录"印章库"，避免依赖外部路径） ----------
+
+        /// <summary>印章库目录 = EXE 同目录"印章库"。</summary>
+        public static string StampLibraryDir
+        {
+            get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "印章库"); }
+        }
+
+        /// <summary>判断路径是否位于印章库内（库内文件删除时不再询问外部文件）。</summary>
+        public static bool IsInLibrary(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            try
+            {
+                string lib = Path.GetFullPath(StampLibraryDir);
+                string full = Path.GetFullPath(path);
+                return full.StartsWith(lib, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>把印章图片复制进印章库（重名自动加序号），返回库内路径；源已在库内则原样返回。</summary>
+        public static string ImportStampToLibrary(string srcPath)
+        {
+            if (string.IsNullOrWhiteSpace(srcPath) || !File.Exists(srcPath)) return srcPath;
+            try
+            {
+                if (IsInLibrary(srcPath)) return srcPath;
+                Directory.CreateDirectory(StampLibraryDir);
+                string ext = Path.GetExtension(srcPath);
+                if (string.IsNullOrEmpty(ext)) ext = ".png";
+                string baseName = Path.GetFileNameWithoutExtension(srcPath);
+                string dest = Path.Combine(StampLibraryDir, baseName + ext);
+                int n = 2;
+                while (File.Exists(dest))
+                {
+                    dest = Path.Combine(StampLibraryDir, baseName + "_" + n.ToString() + ext);
+                    n++;
+                }
+                File.Copy(srcPath, dest);
+                return dest;
+            }
+            catch
+            {
+                // 复制失败（如只读目录）时回退原路径，不阻断导入
+                return srcPath;
+            }
+        }
+
+        /// <summary>删除库内图片文件（仅当文件确实在印章库内才删除，外部文件不动）。</summary>
+        public static void DeleteLibraryFile(string path)
+        {
+            try
+            {
+                if (IsInLibrary(path) && File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+            catch
+            {
+                // 删除失败（占用中）不阻断主流程
+            }
+        }
+
+        /// <summary>启动迁移：把条目中指向库外、且文件仍存在的印章图复制进印章库并更新配置；
+        /// 文件已缺失的外部路径保留条目（界面加载时该章不可用，提示重新导入）。
+        /// 返回迁移成功的条数。</summary>
+        public static int MigrateStampLibrary()
+        {
+            int migrated = 0;
+            try
+            {
+                List<StampEntry> entries = LoadStampEntries();
+                bool changed = false;
+                for (int i = 0; i < entries.Count; i++)
+                {
+                    StampEntry e = entries[i];
+                    if (string.IsNullOrWhiteSpace(e.Path) || IsInLibrary(e.Path)) continue;
+                    if (!File.Exists(e.Path)) continue; // 文件缺失：保留条目，由界面提示
+                    string libPath = ImportStampToLibrary(e.Path);
+                    if (string.Equals(libPath, e.Path, StringComparison.OrdinalIgnoreCase)) continue;
+                    entries[i] = new StampEntry(e.DisplayName, libPath);
+                    // 旧参数节以完整文件名为 key 时，迁移后改为新库内文件名，避免下次切章丢失记忆
+                    string legacyKey = Path.GetFileName(e.Path);
+                    if (HasStampParams(legacyKey))
+                    {
+                        StampParams p = LoadStampParamsCore(legacyKey);
+                        SaveStampParams(e.DisplayName, p);
+                        RemoveStampParamsSection(legacyKey);
+                    }
+                    changed = true;
+                    migrated++;
+                }
+                if (changed)
+                {
+                    SaveStampEntriesInternal(entries);
+                }
+            }
+            catch
+            {
+                // 迁移失败不影响主流程
+            }
+            return migrated;
         }
 
         // ---------- 按文字盖章历史 ----------
@@ -822,8 +990,8 @@ namespace PDFQFZ.WPF.Services
             public int RotationHandle = 0;   // 旋转处理 0=旋转切边 1=不切边
             public int Opacity = 60;         // 不透明度 %
             public bool RandomParams = false;// 盖章随机旋转
-            public int RandomRange = 5;       // 盖章随机旋转角度范围（±N°）
-            public int RandomOffsetMm = 5;    // 盖章随机位移距离（任意方向 0~N mm）
+            public int RandomRange = 0;       // 盖章随机旋转角度范围（0~360°，0=不随机旋转）
+            public int RandomOffsetMm = 0;    // 盖章随机位移距离（任意方向 0~500 mm，0=不随机位移）
             public bool RemoveWhite = false; // 去除白色背景
             public int Tolerance = 20;       // 容差
             public int MaxSplit = 500;       // 骑缝章最大分割数（随印章记忆，默认500）
@@ -835,6 +1003,7 @@ namespace PDFQFZ.WPF.Services
             public int TextureSpot = 0;        // 内部斑点上限 0-100
             public int TextureRadial = 0;       // 径向压印上限 0-100（中心深边缘浅）
             public int TextureCast = 0;         // 整体色偏上限 0-100（印泥批次色差）
+            public int TexturePresetIndex = 0;  // 当前渲染方案（0=自定义，1-4=方案N，随章记忆，见规范 §7.3）
         }
 
         private static string StampParamSection(string stampFileName)
@@ -888,6 +1057,7 @@ namespace PDFQFZ.WPF.Services
                 p.TextureSpot = ini.GetIniInt(sec, "textureSpot", p.TextureSpot);
                 p.TextureRadial = ini.GetIniInt(sec, "textureRadial", p.TextureRadial);
                 p.TextureCast = ini.GetIniInt(sec, "textureCast", p.TextureCast);
+                p.TexturePresetIndex = ini.GetIniInt(sec, "texturePresetIndex", 0);
             }
             catch
             {
@@ -978,6 +1148,7 @@ namespace PDFQFZ.WPF.Services
                 ini.WriteIniInt(sec, "textureSpot", p.TextureSpot);
                 ini.WriteIniInt(sec, "textureRadial", p.TextureRadial);
                 ini.WriteIniInt(sec, "textureCast", p.TextureCast);
+                ini.WriteIniInt(sec, "texturePresetIndex", p.TexturePresetIndex);
             }
             catch
             {

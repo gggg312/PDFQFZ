@@ -29,6 +29,16 @@
         <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
     </Style>
 
+    <!-- 从属功能标题：所在功能块未启用（代码置 IsEnabled=False）时文字自动置灰 -->
+    <Style x:Key="TextBlock.AutoContextLabel" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource Color.Text}" />
+        <Style.Triggers>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="{StaticResource Color.TextHint}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
     <!-- ===================== 输入框 ===================== -->
     <Style TargetType="TextBox">
         <Setter Property="FontFamily" Value="{StaticResource Font.App}" />
@@ -152,10 +162,14 @@
             <Setter.Value>
                 <ControlTemplate TargetType="MenuItem">
                     <Border x:Name="bd" Background="Transparent" CornerRadius="4" Margin="2,1" Padding="8,5">
-                        <ContentPresenter ContentSource="Header" VerticalAlignment="Center"
-                                              TextElement.Foreground="{Binding Foreground, RelativeSource={RelativeSource TemplatedParent}}" />
+                        <!-- 不加 Foreground 本地值/绑定：正常态文字继承 MenuItem.Foreground（黑）；
+                             禁用态由模板触发器直接置灰——本地值优先级高于模板触发器，写绑定会导致置灰失效 -->
+                        <ContentPresenter x:Name="content" ContentSource="Header" VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="content" Property="TextElement.Foreground" Value="{StaticResource Color.TextHint}" />
+                        </Trigger>
                         <Trigger Property="IsHighlighted" Value="True">
                             <Setter TargetName="bd" Property="Background" Value="{StaticResource Color.PrimarySoft}" />
                         </Trigger>
@@ -179,7 +193,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBox">
-                    <Grid>
+                    <Grid x:Name="root">
                         <ToggleButton x:Name="toggle" Focusable="False" ClickMode="Press"
                                       Background="{StaticResource Color.CardBg}"
                                       IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
@@ -188,7 +202,8 @@
                                     <Border x:Name="bd" Background="{TemplateBinding Background}"
                                             BorderBrush="{StaticResource Color.BorderStrong}" BorderThickness="1"
                                             CornerRadius="6">
-                                        <Path x:Name="arrow" Data="M 0,0 L 5,5 L 10,0 Z" Fill="{StaticResource Color.TextSecondary}"
+                                        <Path x:Name="arrow" Data="{StaticResource Icon.FoldArrow}" Fill="{StaticResource Color.TextSecondary}"
+                                              Stretch="Uniform" Width="10" Height="6"
                                               HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0" />
                                     </Border>
                                     <ControlTemplate.Triggers>
@@ -229,8 +244,11 @@
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="toggle" Property="Background" Value="#E8E8E8" />
-                            <Setter Property="Foreground" Value="#999999" />
+                            <!-- 禁用=整体淡化（底色+选中项文字一起 Opacity 0.45）。
+                                 不要对 Foreground/TextElement.Foreground 设值：选中项文字由
+                                 ContentPresenter 内部 TextBlock 呈现，命中隐式 TextBlock 样式
+                                 （Style setter 优先级高于属性继承），设置无效（V81 教训，同 §4.5）。 -->
+                            <Setter TargetName="root" Property="Opacity" Value="0.45" />
                         </Trigger>
                         <Trigger Property="IsEditable" Value="True">
                             <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible" />
@@ -288,6 +306,16 @@
         <Setter Property="BorderBrush" Value="{StaticResource Color.Primary}" />
         <Setter Property="Background" Value="{StaticResource Color.CardBg}" />
     </Style>
+
+    <!-- 方案按钮选中态：浅蓝底 + 蓝边框加粗 + 深蓝加粗字（与视图切换选中态视觉一致，规范 §4.9，加载方案时由代码切换到此样式） -->
+    <Style x:Key="Button.PresetSelected" TargetType="Button" BasedOn="{StaticResource Button.Base}">
+        <Setter Property="Foreground" Value="{StaticResource Color.PrimaryActive}" />
+        <Setter Property="Background" Value="{StaticResource Color.PrimarySoft}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Color.Primary}" />
+        <Setter Property="BorderThickness" Value="2" />
+        <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+
 
     <!-- 方形入口按钮：不带圆角，与圆角操作按钮区分；
          用于"勾选框 + 打开设置弹窗"的组合入口（如盖章渲染）：未勾选时整体置灰不可点，勾选后变亮可点 -->
@@ -425,7 +453,8 @@
     </Style>
 
     <!-- ===================== 勾选 ===================== -->
-    <!-- 方形勾选框规范：不带圆角（与圆角操作按钮区分）；未选中灰边、选中蓝底白勾、hover 亮蓝、禁用变淡 -->
+    <!-- 方形勾选框规范：圆角方框（CornerRadius=3，编号 check-square 4 号风格，非直角非圆形）；
+         未选中灰边白底、选中蓝底白勾、hover 亮蓝、禁用变淡。勾形用 Icon.Check（共享图标库 check-square）。 -->
     <Style TargetType="CheckBox">
         <Setter Property="FontFamily" Value="{StaticResource Font.App}" />
         <Setter Property="FontSize" Value="12.5" />
@@ -435,15 +464,14 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="CheckBox">
-                    <StackPanel Orientation="Horizontal">
-                        <Border x:Name="box" Width="16" Height="16" CornerRadius="0"
+                    <StackPanel x:Name="root" Orientation="Horizontal">
+                        <Border x:Name="box" Width="16" Height="16" CornerRadius="3"
                                 Background="{StaticResource Color.CardBg}"
                                 BorderBrush="#C6CAD2" BorderThickness="1"
                                 VerticalAlignment="Center" SnapsToDevicePixels="True">
-                            <Path x:Name="tick" Data="M 3,8 L 6.5,11.5 L 13,4"
-                                  Stroke="White" StrokeThickness="2"
-                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                                  StrokeLineJoin="Round" Visibility="Collapsed"
+                            <Path x:Name="tick" Data="{StaticResource Icon.Check}"
+                                  Fill="White" Width="9" Height="7"
+                                  Stretch="Uniform" Visibility="Collapsed"
                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Center" />
@@ -458,7 +486,11 @@
                             <Setter TargetName="box" Property="BorderBrush" Value="{StaticResource Color.PrimaryHover}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="box" Property="Opacity" Value="0.45" />
+                            <!-- 禁用=整体淡化（方框+文字一起 Opacity 0.45）。
+                                 不要对 content 设 Foreground/TextElement.Foreground：
+                                 文字由 TextBlock 隐式样式（Style setter）呈现，优先级高于属性继承，
+                                 模板内任何 Foreground 继承/附加值都压不过它（V78~V79 教训）。 -->
+                            <Setter TargetName="root" Property="Opacity" Value="0.45" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -510,38 +542,13 @@
     </Style>
 
     <!-- 折叠按钮：轻按钮样式（浅色背景+圆角，hover背景变深） -->
-    <Style x:Key="FoldButton" TargetType="Button">
-        <Setter Property="FontFamily" Value="{StaticResource Font.App}" />
-        <Setter Property="FontSize" Value="12.5" />
-        <Setter Property="Foreground" Value="{StaticResource Color.TextSecondary}" />
-        <Setter Property="Background" Value="#F0F0F0" />
-        <Setter Property="BorderBrush" Value="#E0E0E0" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Cursor" Value="Hand" />
+    <!-- 折叠按钮（展开设置/收起设置）：与标准按钮一致（白底蓝边蓝字），
+         收起态=蓝字蓝箭头蓝边框；展开态=红字红箭头红边框（颜色由代码按状态切换） -->
+    <Style x:Key="FoldButton" TargetType="Button" BasedOn="{StaticResource Button.Base}">
+        <Setter Property="Foreground" Value="{StaticResource Color.Primary}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Color.Primary}" />
+        <Setter Property="Background" Value="{StaticResource Color.CardBg}" />
         <Setter Property="Padding" Value="8,3" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="Button">
-                    <Border x:Name="border"
-                            Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="4"
-                            Padding="{TemplateBinding Padding}">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="border" Property="Background" Value="#E0E0E0" />
-                            <Setter Property="Foreground" Value="{StaticResource Color.Text}" />
-                        </Trigger>
-                        <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="border" Property="Background" Value="#D0D0D0" />
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
     </Style>
 
     <!-- 操作提示区文字 -->
@@ -553,7 +560,7 @@
         <Setter Property="LineHeight" Value="20" />
     </Style>
 
-    <!-- ===================== 历史下拉：删除叉（Chrome 搜索历史样式） ===================== -->
+    <!-- ===================== 历史下拉：删除叉（Chrome 搜索历史样式，V116 起用图标 Icon.Close） ===================== -->
     <Style x:Key="HistoryDeleteButton" TargetType="Button">
         <Setter Property="FontFamily" Value="{StaticResource Font.App}" />
         <Setter Property="FontSize" Value="12.5" />
@@ -563,12 +570,14 @@
         <Setter Property="Padding" Value="5,1" />
         <Setter Property="Width" Value="20" />
         <Setter Property="Cursor" Value="Hand" />
-        <Setter Property="Content" Value="✕" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="3">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        <Path Data="{StaticResource Icon.Close}"
+                              Fill="{TemplateBinding Foreground}" Stretch="Uniform"
+                              Width="9" Height="9"
+                              HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
@@ -608,7 +617,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ScrollBar">
                     <Grid Background="Transparent">
-                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                        <Track x:Name="PART_Track" Orientation="{TemplateBinding Orientation}" IsDirectionReversed="True">
                             <Track.DecreaseRepeatButton>
                                 <RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0"
                                               IsHitTestVisible="False" Focusable="False" />

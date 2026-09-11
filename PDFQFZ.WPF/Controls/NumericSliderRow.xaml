@@ -2,13 +2,27 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Loaded="UserControl_Loaded" Unloaded="UserControl_Unloaded">
-    <!-- 拖动条规范：标题(上) + 滑块行(下)，两行在一个框内；滑块行参考 GGStampWatermark（Windows NumericUpDown 标准调节按钮） -->
-    <Border BorderBrush="#E5E6EB" BorderThickness="1" CornerRadius="6"
-            Background="#F7F8FA" Padding="8,6">
+    <!-- 拖动条规范（V141）：标题(上) + 功能说明(中，小灰字，可空自动隐藏) + 滑块行(下)；
+         样式：白底 + 蓝边（Color.Primary，与按钮边框一致），圆角 6；阴影未启用（暂无先例，待评估） -->
+    <Border BorderBrush="{StaticResource Color.Primary}" BorderThickness="1" CornerRadius="6"
+            Background="{StaticResource Color.CardBg}" Padding="8,6">
         <StackPanel>
             <!-- 第一行：标题（§0.7 初始化规范：XAML 绑定显示，不依赖代码赋值） -->
             <TextBlock Text="{Binding Title, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                       Style="{StaticResource SectionTitle}" Margin="0,0,0,6" />
+                       Style="{StaticResource SectionTitle}" Margin="0,0,0,2" />
+            <!-- 说明行：功能一句话描述（SectionHint 小灰字 12.5px），为空自动隐藏 -->
+            <TextBlock Text="{Binding Description, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                       TextWrapping="Wrap" Margin="0,0,0,6">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock" BasedOn="{StaticResource SectionHint}">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Description, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
             <!-- 第二行：滑块 + 数值框 + 上下箭头；行高统一 28，全部垂直居中，保证水平中线对齐 -->
             <Grid Height="28">
                 <Grid.ColumnDefinitions>
@@ -30,11 +44,11 @@
                 <StackPanel Grid.Column="3" VerticalAlignment="Center">
                     <RepeatButton x:Name="btnUp" Tag="up" Click="OnSpinClick"
                                   Style="{StaticResource SpinButton}" Width="18" Height="13">
-                        <Path Data="M 0,7 L 12,7 L 6,0 Z" Fill="#646A73" Stretch="Uniform" Width="10" Height="6" />
+                        <Path Data="{StaticResource Icon.ArrowUp}" Fill="#646A73" Stretch="Uniform" Width="10" Height="6" />
                     </RepeatButton>
                     <RepeatButton x:Name="btnDown" Tag="down" Click="OnSpinClick"
                                   Style="{StaticResource SpinButton}" Width="18" Height="13" Margin="0,2,0,0">
-                        <Path Data="M 0,0 L 12,0 L 6,7 Z" Fill="#646A73" Stretch="Uniform" Width="10" Height="6" />
+                        <Path Data="{StaticResource Icon.FoldArrow}" Fill="#646A73" Stretch="Uniform" Width="10" Height="6" />
                     </RepeatButton>
                 </StackPanel>
             </Grid>

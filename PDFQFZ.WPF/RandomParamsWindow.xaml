@@ -1,0 +1,25 @@
+﻿<Window x:Class="PDFQFZ.WPF.RandomParamsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:PDFQFZ.WPF.Controls"
+        Title="随机角度与位移"
+        Width="300" MinWidth="280" MinHeight="220"
+        SizeToContent="Height" ResizeMode="CanResize"
+        WindowStartupLocation="Manual" ShowInTaskbar="False"
+        Background="{StaticResource Color.WindowBg}" FontFamily="{StaticResource Font.App}" FontSize="12.5">
+    <StackPanel Margin="16">
+        <!-- 功能块：随机角度与位移（两个拖动条：角度 0-360°，位移 0-500mm，实时生效保存当前章） -->
+        <Border Style="{StaticResource Card}">
+            <StackPanel>
+                <TextBlock Text="随机角度与位移" Style="{StaticResource SectionTitle}" />
+                <StackPanel Margin="0,10,0,0">
+                    <controls:NumericSliderRow x:Name="rowAngle" Title="角度（°）" Description="盖章随机旋转角度" Minimum="0" Maximum="360" Margin="0,0,0,10" />
+                    <controls:NumericSliderRow x:Name="rowOffset" Title="位移（mm）" Description="盖章随机偏移距离" Minimum="0" Maximum="200" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+        <!-- 底部说明：随机角度与位移 -->
+        <TextBlock Text="盖章时将按设定范围随机旋转角度并偏移位置，模拟手工盖章效果。"
+                   Foreground="{StaticResource Color.TextSecondary}" TextWrapping="Wrap" Margin="0,10,0,0" />
+    </StackPanel>
+</Window>

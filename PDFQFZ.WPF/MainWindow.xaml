@@ -1,9 +1,10 @@
-<Window x:Class="PDFQFZ.WPF.MainWindow"
+﻿<Window x:Class="PDFQFZ.WPF.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PDF盖页面章与骑缝章工具（V2.3.1 GG优化版）"
+        Title="PDF盖页面章与骑缝章工具"
         Icon="app.ico"
         Height="840" Width="1280" MinHeight="680" MinWidth="1024"
+        AllowDrop="True"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource Color.WindowBg}"
         FontFamily="{StaticResource Font.App}">
@@ -35,7 +36,7 @@
             </Grid>
         </DataTemplate>
     </Window.Resources>
-    <Grid>
+    <Grid x:Name="rootGrid">
         <Grid.ColumnDefinitions>
             <ColumnDefinition x:Name="leftPanelColumn" Width="44*" MinWidth="420" />
             <ColumnDefinition Width="2" />
@@ -48,16 +49,17 @@
 
         <!-- ===================== 左侧：设置面板 ===================== -->
         <!-- 上区：卡片 + 盖章按钮（占剩余空间，内容多时内部滚动）；下区：操作提示区固定高度贴底 -->
-        <!-- 左栏统一外框：上下两区共用一个方框，右侧滚动条必然对齐 -->
-        <Border Grid.Column="0" Background="{StaticResource Color.CardBg}"
+        <!-- 左栏统一外框：上下两区共用一个方框，右侧滚动条必然对齐；方角、顶部贴窗口顶（作为设置区提示面板） -->
+        <Border x:Name="leftFrame" Grid.Column="0" Background="{StaticResource Color.CardBg}"
                 BorderBrush="{StaticResource Color.Border}" BorderThickness="1"
-                CornerRadius="10" Margin="0,14,0,14">
+                CornerRadius="0" Margin="0,0,0,0">
             <Grid x:Name="leftGrid">
                 <Grid.RowDefinitions>
-                    <RowDefinition x:Name="settingsRow" Height="3*" MaxHeight="1400" />
+                    <!-- 高度由 UpdateSettingsHeight 代码控制（固定阈值分配，只依赖窗口高度）：设置区占满剩余，日志区保底 300 -->
+                    <RowDefinition x:Name="settingsRow" Height="*" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="1" />
-                    <RowDefinition x:Name="logRow" Height="*" MinHeight="190" />
+                    <RowDefinition x:Name="logRow" Height="*" MinHeight="300" />
                 </Grid.RowDefinitions>
                 <!-- 设置区：可滚动，底部叠加“可继续滚动”提示 -->
                 <Grid Grid.Row="0">
@@ -96,16 +98,31 @@
                                 <Button Grid.Column="2" x:Name="btnSourcePdf" Style="{StaticResource Button.Secondary}"
                                         Content="选择" Margin="8,0,0,0" Width="64" />
                             </Grid>
-                            <!-- 保存目录 -->
+                            <!-- 保存目录（可锁定：勾选后不随输入文件自动调整，长期固定使用指定目录） -->
                             <Grid Margin="0,0,0,8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="64" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="保存目录" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                <TextBox Grid.Column="1" x:Name="txtOutputDir" AutomationProperties.AutomationId="txtOutputDir" VerticalAlignment="Center" AllowDrop="True" Height="30" />
-                                <Button Grid.Column="2" x:Name="btnOutputDir" Style="{StaticResource Button.Secondary}"
+                                <TextBox Grid.Column="1" x:Name="txtOutputDir" AutomationProperties.AutomationId="txtOutputDir" VerticalAlignment="Center" Height="30" />
+                                <CheckBox Grid.Column="2" x:Name="chkOutputDirLock" VerticalAlignment="Center" Margin="8,0,0,0"
+                                          ToolTip="勾选后锁定输出目录，加载/拖入 PDF 或文件夹时不再自动调整">
+                                    <TextBlock Text="锁定">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock" BasedOn="{StaticResource TextBlock.AutoContextLabel}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=CheckBox}}" Value="False">
+                                                        <Setter Property="Foreground" Value="{StaticResource Color.TextHint}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </CheckBox>
+                                <Button Grid.Column="3" x:Name="btnOutputDir" Style="{StaticResource Button.Secondary}"
                                         Content="选择" Margin="8,0,0,0" Width="64" />
                             </Grid>
                             <!-- 印章文件（可存多个印章，下拉单选当前使用的章；每章各自记忆参数） -->
@@ -148,43 +165,77 @@
                                            Text="选择盖章方式与输出效果" HorizontalAlignment="Right" />
                             </Grid>
 
-                            <!-- 第一行：页面盖章 + 指定范围 -->
-                            <Grid Margin="0,0,0,8">
+                            <!-- 盖章方式区 = 2×2 表格（两列等宽撑满整行，V72 重构）：
+                                 行1=页面盖章(标题+下拉填满)/指定范围页盖章(按钮填满整格)；
+                                 行2=骑缝章(标题+下拉填满)/输出效果(标题+下拉填满)；
+                                 每格=标题(Auto 固定完整显示)+控件(*)自适应填满；行距10、列距12 -->
+                            <Grid Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="64" />
-                                    <ColumnDefinition Width="140" />
+                                    <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="页面盖章" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                <ComboBox Grid.Column="1" x:Name="comboPageStamp" VerticalAlignment="Center">
-                                    <ComboBoxItem Content="不盖页面章" />
-                                    <ComboBoxItem Content="手动点击盖章" />
-                                </ComboBox>
-                                <Button Grid.Column="2" x:Name="btnSpecifiedPage" Style="{StaticResource Button.Secondary}"
-                                        Content="指定范围页盖章" Margin="14,0,0,0" HorizontalAlignment="Left" />
-                            </Grid>
-                            <!-- 第二行：骑缝章 + 输出效果（右侧留出统一间距，不贴边） -->
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="64" />
-                                    <ColumnDefinition Width="140" />
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="165" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="骑缝章" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                <ComboBox Grid.Column="1" x:Name="comboSeam" VerticalAlignment="Center">
-                                    <ComboBoxItem Content="不加骑缝章" />
-                                    <ComboBoxItem Content="加盖骑缝章" />
-                                    <ComboBoxItem Content="单页骑缝章" />
-                                    <ComboBoxItem Content="双页骑缝章" />
-                                    <ComboBoxItem Content="随意骑缝章" />
-                                </ComboBox>
-                                <TextBlock Grid.Column="2" Text="输出效果" VerticalAlignment="Center" Margin="14,0,8,0" />
-                                <ComboBox Grid.Column="3" x:Name="comboOutput" VerticalAlignment="Center" SelectedIndex="0">
-                                    <ComboBoxItem Content="合并（盖章不可编辑）" />
-                                    <ComboBoxItem Content="叠加（盖章浮于页面）" />
-                                </ComboBox>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <!-- 行1列1：页面盖章 = 标题+下拉（填满） -->
+                                <Grid Grid.Row="0" Grid.Column="0" Margin="0,0,12,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="页面盖章" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                    <ComboBox Grid.Column="1" x:Name="comboPageStamp" Height="30" MinWidth="0"
+                                              VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                                        <ComboBoxItem Content="不盖页面章" />
+                                        <ComboBoxItem Content="手动点击盖章" />
+                                    </ComboBox>
+                                </Grid>
+                                <!-- 行1列2：指定范围页盖章 = 按钮填满整格宽度 -->
+                                <Button Grid.Row="0" Grid.Column="1" x:Name="btnSpecifiedPage"
+                                        Style="{StaticResource Button.Secondary}"
+                                        Content="指定范围页盖章" Height="30" Margin="0,0,0,10"
+                                        VerticalAlignment="Center" HorizontalAlignment="Stretch" />
+
+                                <!-- 行2列1：骑缝章 = 标题(3字分散对齐到4字宽)+下拉（填满） -->
+                                <Grid Grid.Row="1" Grid.Column="0" Margin="0,0,12,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid Grid.Column="0" Width="53" VerticalAlignment="Center" Margin="0,0,6,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="骑" TextAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="缝" TextAlignment="Center" />
+                                        <TextBlock Grid.Column="2" Text="章" TextAlignment="Center" />
+                                    </Grid>
+                                    <ComboBox Grid.Column="1" x:Name="comboSeam" Height="30" MinWidth="0"
+                                              VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                                        <ComboBoxItem Content="不加骑缝章" />
+                                        <ComboBoxItem Content="加盖骑缝章" />
+                                        <ComboBoxItem Content="单页骑缝章" />
+                                        <ComboBoxItem Content="双页骑缝章" />
+                                        <ComboBoxItem Content="随意骑缝章" />
+                                    </ComboBox>
+                                </Grid>
+                                <!-- 行2列2：输出效果 = 标题+下拉（填满） -->
+                                <Grid Grid.Row="1" Grid.Column="1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="输出效果" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                    <ComboBox Grid.Column="1" x:Name="comboOutput" Height="30" MinWidth="0"
+                                              VerticalAlignment="Center" HorizontalAlignment="Stretch" SelectedIndex="0">
+                                        <ComboBoxItem Content="合并（盖章不可编辑）" />
+                                        <ComboBoxItem Content="叠加（盖章浮于页面）" />
+                                    </ComboBox>
+                                </Grid>
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -209,7 +260,10 @@
                                            Text="搜索匹配条件的文字并盖章" HorizontalAlignment="Right" Margin="0,0,12,0" />
                                 <Button Grid.Column="3" x:Name="btnFoldAutoText" Style="{StaticResource FoldButton}">
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock x:Name="foldAutoTextArrow" Text="▶" Margin="0,0,4,0" />
+                                        <Path x:Name="foldAutoTextArrow" Data="{StaticResource Icon.FoldArrow}"
+                                              Fill="{StaticResource Color.Primary}" Width="10" Height="10" Stretch="Uniform"
+                                              RenderTransformOrigin="0.5,0.5" Margin="0,0,4,0"
+                                              VerticalAlignment="Center" />
                                         <TextBlock x:Name="foldAutoTextText" Text="展开设置" />
                                     </StackPanel>
                                 </Button>
@@ -218,35 +272,56 @@
                             <StackPanel x:Name="autoTextContent">
                             <TextBlock Style="{StaticResource SectionHint}" Text="输入需要盖章的文字"
                                        Margin="0,0,0,4" />
-                            <WrapPanel Margin="0,0,0,8">
-                                <Grid Width="180" Margin="0,0,8,0">
+
+                            <!-- 功能区1：搜索与放置（2列表格，列1占3/4=关键词输入框填满，列2占1/4=中心偏移） -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="3*" />
+                                    <ColumnDefinition Width="1*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid Grid.Column="0" Margin="0,0,12,0">
                                     <TextBlock x:Name="autoKeywordWatermark" Text="请输入文字"
                                                Foreground="{StaticResource Color.TextHint}"
                                                VerticalAlignment="Center" Margin="10,0,0,0"
                                                IsHitTestVisible="False" />
                                     <ComboBox x:Name="comboAutoKeyword" AutomationProperties.AutomationId="comboAutoKeyword"
-                                              IsEditable="True" VerticalAlignment="Center"
+                                              IsEditable="True" Height="30" MinWidth="0"
+                                              VerticalAlignment="Center" HorizontalAlignment="Stretch"
                                               ItemTemplate="{StaticResource HistoryItemTemplate}" />
                                 </Grid>
-                                <CheckBox x:Name="chkCenterOffset" Content="中心偏移" VerticalAlignment="Center" />
-                                <TextBlock Text="横" VerticalAlignment="Center" Margin="10,0,4,0" />
-                                <TextBox x:Name="txtCenterOffsetX" Text="0" Width="52" Height="30" TextAlignment="Center"
-                                         VerticalContentAlignment="Center" Padding="2,3" IsEnabled="False" />
-                                <TextBlock Text="mm" VerticalAlignment="Center" Margin="4,0,0,0" Foreground="#666666" />
-                                <TextBlock Text="纵" VerticalAlignment="Center" Margin="10,0,4,0" />
-                                <TextBox x:Name="txtCenterOffsetY" Text="0" Width="52" Height="30" TextAlignment="Center"
-                                         VerticalContentAlignment="Center" Padding="2,3" IsEnabled="False" />
-                                <TextBlock Text="mm" VerticalAlignment="Center" Margin="4,0,0,0" Foreground="#666666" />
-                            </WrapPanel>
-                            <!-- 上下文过滤：仅当目标文字附近出现指定关键词时才盖章 -->
-                            <StackPanel Orientation="Horizontal" Margin="0,6,0,4">
-                                <CheckBox x:Name="chkContextFilter" Content="附近关键词"
-                                          VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                            VerticalAlignment="Center" HorizontalAlignment="Left">
+                                    <CheckBox x:Name="chkCenterOffset" VerticalAlignment="Center" Margin="0,0,2,0"
+                                              Checked="ChkCenterOffset_Changed" Unchecked="ChkCenterOffset_Changed" />
+                                    <Button x:Name="btnCenterOffset" Style="{StaticResource Button.SecondarySquare}"
+                                            Content="中心偏移" Width="90" Height="30" IsEnabled="False"
+                                            VerticalAlignment="Center" Click="BtnCenterOffset_Click" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- 功能区分隔线：搜索与放置 / 附近关键词过滤，间距20 -->
+                            <Border Height="1" Background="{StaticResource Color.Border}" Margin="0,9,0,10" />
+
+                            <!-- 功能区2：附近关键词过滤 -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                <CheckBox x:Name="chkContextFilter" VerticalAlignment="Center">
+                                            <TextBlock Text="附近关键词">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource TextBlock.AutoContextLabel}">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=CheckBox}}" Value="False">
+                                                                <Setter Property="Foreground" Value="{StaticResource Color.TextHint}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </CheckBox>
                                 <TextBlock Style="{StaticResource SectionHint}"
-                                           Text="（目标文字前后范围内出现这些词才盖章，多个词可用逗号、分号、顿号、空格分隔）"
+                                           Text="（前后出现这些词才盖章，多词可用逗号、分号、顿号、空格分隔）"
                                            VerticalAlignment="Center" Margin="8,0,0,0" TextWrapping="Wrap" />
                             </StackPanel>
-                            <Grid Margin="0,0,0,0">
+                            <Grid Margin="0,0,0,10">
                                 <TextBlock x:Name="contextKeywordsWatermark"
                                            Text="多个词用逗号分隔，如：盖章,公章,签章"
                                            Foreground="{StaticResource Color.TextHint}"
@@ -256,25 +331,54 @@
                                          VerticalContentAlignment="Center" Padding="3,3"
                                          IsEnabled="False" />
                             </Grid>
-                            <WrapPanel Orientation="Horizontal" Margin="0,6,0,0">
-                                <StackPanel Orientation="Horizontal" Margin="0,0,20,0">
-                                    <TextBlock Text="上下文范围" VerticalAlignment="Center" Margin="0,0,5,0" />
+                            <!-- 3列表格：字符范围 / 忽略空白 / 匹配（列宽由最宽组撑开，列距24；末列*填满使控件尾部对齐行尾） -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal"
+                                            VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,24,0">
+                                    <TextBlock x:Name="lblContextRange" Style="{StaticResource TextBlock.AutoContextLabel}"
+                                               Text="字符范围" VerticalAlignment="Center" Margin="0,0,8,0" />
                                     <TextBox x:Name="txtContextRange" Text="10" Width="46" Height="30"
                                              VerticalContentAlignment="Center" TextAlignment="Center"
                                              Padding="3,3" IsEnabled="False" />
-                                    <TextBlock Text="字" VerticalAlignment="Center" Margin="4,0,0,0" Foreground="#666666" />
-                                    <CheckBox x:Name="chkContextExcludeSpaces" Content="排除空格"
-                                              VerticalAlignment="Center" Margin="14,0,0,0" IsEnabled="False" />
                                 </StackPanel>
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="匹配" VerticalAlignment="Center" Margin="0,0,5,0" />
-                                    <ComboBox x:Name="comboContextMatch" Width="150" Height="30"
-                                              VerticalAlignment="Center" IsEnabled="False">
+                                <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                            VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,24,0">
+                                    <CheckBox x:Name="chkContextExcludeSpaces" VerticalAlignment="Center" IsEnabled="False">
+                                                <TextBlock Text="忽略空白">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock" BasedOn="{StaticResource TextBlock.AutoContextLabel}">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=CheckBox}}" Value="False">
+                                                                    <Setter Property="Foreground" Value="{StaticResource Color.TextHint}" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </CheckBox>
+                                </StackPanel>
+                                <Grid Grid.Column="2" VerticalAlignment="Center">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="lblContextMatch" Style="{StaticResource TextBlock.AutoContextLabel}"
+                                               Text="匹配" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <ComboBox x:Name="comboContextMatch" Grid.Column="1" MinWidth="0" Height="30"
+                                              VerticalAlignment="Center" HorizontalAlignment="Stretch"
+                                              IsEnabled="False">
                                         <ComboBoxItem Content="任一关键词（或）" IsSelected="True" />
                                         <ComboBoxItem Content="全部关键词（且）" />
                                     </ComboBox>
-                                </StackPanel>
-                            </WrapPanel>
+                                </Grid>
+                            </Grid>
+                            <!-- 功能区分隔线：附近关键词过滤 / 操作按钮，间距20 -->
+                            <Border Height="1" Background="{StaticResource Color.Border}" Margin="0,9,0,10" />
                             <!-- 按钮放在区域最下面 -->
                             <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                 <Button x:Name="btnAutoPlace" Style="{StaticResource Button.Secondary}"
@@ -302,143 +406,168 @@
                                                HorizontalAlignment="Stretch" TextAlignment="Center" VerticalAlignment="Center" />
                                 </Border>
                                 <TextBlock Grid.Column="1" Style="{StaticResource SectionTitle}" Text="印章参数" />
-                                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Center"
-                                            VerticalAlignment="Center">
-                                    <TextBlock x:Name="txtStampParamOwnerPrefix" Text="当前参数："
-                                               Style="{StaticResource SectionHint}" />
-                                    <TextBlock x:Name="txtStampParamOwnerName" Text="" FontSize="12.5"
-                                               Foreground="{StaticResource Color.Danger}" />
-                                </StackPanel>
+                                <TextBlock Grid.Column="2" Text="调整印章显示参数"
+                                           Style="{StaticResource SectionHint}"
+                                           HorizontalAlignment="Right" VerticalAlignment="Center"
+                                           Margin="0,0,12,0" />
                                 <Button Grid.Column="3" x:Name="btnFoldSealParams" Style="{StaticResource FoldButton}">
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock x:Name="foldSealParamsArrow" Text="▶" Margin="0,0,4,0" />
+                                        <Path x:Name="foldSealParamsArrow" Data="{StaticResource Icon.FoldArrow}"
+                                              Fill="{StaticResource Color.Primary}" Width="10" Height="10" Stretch="Uniform"
+                                              RenderTransformOrigin="0.5,0.5" Margin="0,0,4,0"
+                                              VerticalAlignment="Center" />
                                         <TextBlock x:Name="foldSealParamsText" Text="展开设置" />
                                     </StackPanel>
                                 </Button>
                             </Grid>
 
-                            <StackPanel x:Name="sealParamsContent">
-                                <!-- 行1：印章尺寸 / 旋转 / 旋转处理（统一列模板 64/46/30/24/64/46/30/24/64/Auto；标题右对齐贴输入框 6px，单位左留 6px，组间 24px） -->
-                                <Grid Margin="0,0,0,10">
+                            <StackPanel x:Name="sealParamsContent" Grid.IsSharedSizeScope="True">
+                                <!-- 印章参数区 = 3 个独立表格（按功能分区，V70 重构）：
+                                     表格1=印章显示参数(行1-2)、表格2=骑缝章(行3)、表格3=容差(行4)；
+                                     各表格同名列用 SharedSizeGroup 联动列宽（取所有表格该列最宽组，与单表格时列宽一致、上下对齐不变）；
+                                     表格内行距 10，表格间 = 分隔线 + 间距 20（功能分区自然形成，不再用表格内分隔线行）；
+                                     组内横向排列、单元格内垂直居中左对齐；列间距 24（组右 Margin）、行间距 10 -->
+                                <!-- 表格1：印章显示参数（2 行 3 列） -->
+                                <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="64" />
-                                        <ColumnDefinition Width="46" />
-                                        <ColumnDefinition Width="30" />
-                                        <ColumnDefinition Width="24" />
-                                        <ColumnDefinition Width="64" />
-                                        <ColumnDefinition Width="46" />
-                                        <ColumnDefinition Width="30" />
-                                        <ColumnDefinition Width="24" />
-                                        <ColumnDefinition Width="64" />
-                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="SPCol0" />
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="SPCol1" />
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="SPCol2" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="印章尺寸" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                                    <TextBox Grid.Column="1" x:Name="txtStampSize" Text="40" Height="30"
-                                             VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
-                                    <TextBlock Grid.Column="2" Text="mm" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="#666666" />
-                                    <TextBlock Grid.Column="4" Text="旋转" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                                    <TextBox Grid.Column="5" x:Name="txtRotation" Text="0" Height="30"
-                                             VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
-                                    <TextBlock Grid.Column="6" Text="°" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="#666666" />
-                                    <TextBlock Grid.Column="8" Text="旋转处理" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                                    <ComboBox Grid.Column="9" x:Name="comboRotationHandle" Width="100" Height="30"
-                                              VerticalAlignment="Center" HorizontalAlignment="Left">
-                                        <ComboBoxItem Content="旋转切边" />
-                                        <ComboBoxItem Content="不切边" />
-                                    </ComboBox>
-                                </Grid>
-                                <!-- 行2：不透明度 / 旋转随机 -->
-                                <Grid Margin="0,0,0,10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="64" />
-                                        <ColumnDefinition Width="46" />
-                                        <ColumnDefinition Width="30" />
-                                        <ColumnDefinition Width="24" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="不透明度" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                                    <TextBox Grid.Column="1" x:Name="txtOpacity" Text="60" Height="30"
-                                             VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
-                                    <TextBlock Grid.Column="2" Text="%" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="#666666" />
-                                    <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="34,0,0,0">
-                                        <CheckBox x:Name="chkRandomParams" Content="随机" VerticalAlignment="Center" Margin="0,0,8,0"
-                                                  Checked="ChkRandomParams_Changed" Unchecked="ChkRandomParams_Changed" />
-                                        <TextBlock Text="±" VerticalAlignment="Center" Margin="0,0,3,0" Foreground="#666666" />
-                                        <TextBox x:Name="txtRandomRange" Text="5" Width="40" Height="30"
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+
+                                    <!-- 行1列1：印章尺寸 = 标题+输入框+单位mm -->
+                                    <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal"
+                                                VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,24,10">
+                                        <TextBlock Text="印章尺寸" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <TextBox x:Name="txtStampSize" Text="40" Width="46" Height="30"
                                                  VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
-                                        <TextBlock Text="°" VerticalAlignment="Center" Margin="3,0,6,0" Foreground="#666666" />
-                                        <TextBlock Text="位移" VerticalAlignment="Center" Margin="0,0,3,0" Foreground="#666666" />
-                                        <TextBox x:Name="txtRandomOffsetMm" Text="5" Width="40" Height="30"
-                                                 VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
-                                        <TextBlock Text="mm" VerticalAlignment="Center" Margin="3,0,0,0" Foreground="#666666" />
+                                        <TextBlock Text="mm" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="#666666" />
                                     </StackPanel>
-                                </Grid>
-                                <!-- 行2.5：盖章渲染（勾选后可用；点击按钮弹窗设置四维上限，未勾选按钮置灰） -->
-                                <Grid Margin="0,0,0,10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="64" />
-                                        <ColumnDefinition Width="46" />
-                                        <ColumnDefinition Width="30" />
-                                        <ColumnDefinition Width="24" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="34,0,0,0">
-                                        <CheckBox x:Name="chkTextureQuality" VerticalAlignment="Center" Margin="0,0,8,0"
+                                    <!-- 行1列2：旋转 = 标题+输入框+单位° -->
+                                    <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal"
+                                                VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,24,10">
+                                        <TextBlock Text="旋转" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <TextBox x:Name="txtRotation" Text="0" Width="46" Height="30"
+                                                 VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
+                                        <TextBlock Text="°" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="#666666" />
+                                    </StackPanel>
+                                    <!-- 行1列3：旋转处理 = 标题+下拉框 -->
+                                    <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal"
+                                                VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,0,10">
+                                        <TextBlock Text="旋转处理" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <ComboBox x:Name="comboRotationHandle" Width="100" Height="30"
+                                                  VerticalAlignment="Center" HorizontalAlignment="Left">
+                                            <ComboBoxItem Content="旋转切边" />
+                                            <ComboBoxItem Content="不切边" />
+                                        </ComboBox>
+                                    </StackPanel>
+
+                                    <!-- 行2列1：不透明度 = 标题+输入框+单位% -->
+                                    <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal"
+                                                VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,24,0">
+                                        <TextBlock Text="不透明度" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <TextBox x:Name="txtOpacity" Text="60" Width="46" Height="30"
+                                                 VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
+                                        <TextBlock Text="%" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="#666666" />
+                                    </StackPanel>
+                                    <!-- 行2列2：随机角度位移 = 勾选框+按钮 -->
+                                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal"
+                                                VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,24,0">
+                                        <CheckBox x:Name="chkRandomParams" VerticalAlignment="Center" Margin="0,0,2,0"
+                                                  Checked="ChkRandomParams_Changed" Unchecked="ChkRandomParams_Changed" />
+                                        <Button x:Name="btnRandomParams" Style="{StaticResource Button.SecondarySquare}"
+                                                Content="随机角度位移" Width="106" Height="30" IsEnabled="False"
+                                                VerticalAlignment="Center" Click="BtnRandomParams_Click" />
+                                    </StackPanel>
+                                    <!-- 行2列3：盖章渲染 = 勾选框+按钮 -->
+                                    <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Horizontal"
+                                                VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,0,0">
+                                        <CheckBox x:Name="chkTextureQuality" VerticalAlignment="Center" Margin="0,0,2,0"
                                                   Checked="ChkTextureQuality_Changed" Unchecked="ChkTextureQuality_Changed" />
                                         <Button x:Name="btnTextureSettings" Style="{StaticResource Button.SecondarySquare}"
                                                 Content="盖章渲染" Width="90" Height="30" IsEnabled="False"
                                                 VerticalAlignment="Center" Click="BtnTextureSettings_Click" />
                                     </StackPanel>
                                 </Grid>
-                                <!-- 行3：骑缝位置 / 位置 / 分割数（骑缝位置下拉 76 = 46+30 跨度，右边缘对齐 mm 结尾；上下留白均衡突出分组） -->
-                                <Grid Margin="0,10,0,20">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="64" />
-                                        <ColumnDefinition Width="46" />
-                                        <ColumnDefinition Width="30" />
-                                        <ColumnDefinition Width="24" />
-                                        <ColumnDefinition Width="64" />
-                                        <ColumnDefinition Width="46" />
-                                        <ColumnDefinition Width="30" />
-                                        <ColumnDefinition Width="24" />
-                                        <ColumnDefinition Width="64" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="骑缝位置" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                                    <ComboBox Grid.Column="1" Grid.ColumnSpan="2" x:Name="comboSeamPosition" Width="76" MinWidth="0" MinHeight="0" Height="30"
-                                              VerticalAlignment="Center" HorizontalAlignment="Left">
-                                        <ComboBoxItem Content="上" />
-                                        <ComboBoxItem Content="下" />
-                                        <ComboBoxItem Content="左" />
-                                        <ComboBoxItem Content="右" />
-                                    </ComboBox>
-                                    <TextBlock Grid.Column="4" Text="位置" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                                    <TextBox Grid.Column="5" x:Name="txtSeamPosPct" Text="50" Height="30"
-                                             VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
-                                    <TextBlock Grid.Column="6" Text="%" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="#666666" />
-                                    <TextBlock Grid.Column="8" Text="分割数" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                                    <TextBox Grid.Column="9" x:Name="txtMaxSplit" Text="20" Width="46" Height="30"
-                                             VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
-                                </Grid>
-                                <!-- 行4：去除白色背景 + 容差 -->
+
+                                <!-- 功能分隔线：印章显示参数 与 骑缝章 之间，间距20 -->
+                                <Border Height="1" Background="{StaticResource Color.Border}" Margin="0,9,0,10" />
+
+                                <!-- 表格2：骑缝章（1 行 3 列） -->
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="64" />
-                                        <ColumnDefinition Width="46" />
-                                        <ColumnDefinition Width="30" />
-                                        <ColumnDefinition Width="24" />
-                                        <ColumnDefinition Width="64" />
-                                        <ColumnDefinition Width="46" />
-                                        <ColumnDefinition Width="30" />
-                                        <ColumnDefinition Width="24" />
-                                        <ColumnDefinition Width="64" />
-                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="SPCol0" />
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="SPCol1" />
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="SPCol2" />
                                     </Grid.ColumnDefinitions>
-                                    <CheckBox Grid.Column="0" Grid.ColumnSpan="3" x:Name="chkRemoveWhite" Content="去除图章白色背景" VerticalAlignment="Center"
-                                              HorizontalAlignment="Left" Margin="10,0,0,0" />
-                                    <TextBlock Grid.Column="4" Text="容差" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                                    <TextBox Grid.Column="5" x:Name="txtTolerance" Text="20" Height="30"
-                                             VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
+                                    <!-- 列1：骑缝位置 = 标题+下拉框 -->
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal"
+                                                VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,24,0">
+                                        <TextBlock Text="骑缝位置" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <ComboBox x:Name="comboSeamPosition" Width="76" MinWidth="0" MinHeight="0" Height="30"
+                                                  VerticalAlignment="Center" HorizontalAlignment="Left">
+                                            <ComboBoxItem Content="上" />
+                                            <ComboBoxItem Content="下" />
+                                            <ComboBoxItem Content="左" />
+                                            <ComboBoxItem Content="右" />
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <!-- 列2：位置 = 标题+输入框+单位% -->
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                                VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,24,0">
+                                        <TextBlock Text="位置" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <TextBox x:Name="txtSeamPosPct" Text="50" Width="46" Height="30"
+                                                 VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
+                                        <TextBlock Text="%" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="#666666" />
+                                    </StackPanel>
+                                    <!-- 列3：分割数 = 标题(3字分散对齐到4字宽)+输入框 -->
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal"
+                                                VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,0,0">
+                                        <Grid Width="53" VerticalAlignment="Center" Margin="0,0,6,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="分" TextAlignment="Center" />
+                                            <TextBlock Grid.Column="1" Text="割" TextAlignment="Center" />
+                                            <TextBlock Grid.Column="2" Text="数" TextAlignment="Center" />
+                                        </Grid>
+                                        <TextBox x:Name="txtMaxSplit" Text="20" Width="46" Height="30"
+                                                 VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- 功能分隔线：骑缝章 与 容差 之间，间距20 -->
+                                <Border Height="1" Background="{StaticResource Color.Border}" Margin="0,9,0,10" />
+
+                                <!-- 表格3：容差（1 行 3 列） -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="SPCol0" />
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="SPCol1" />
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="SPCol2" />
+                                    </Grid.ColumnDefinitions>
+                                    <!-- 列1：去除图章白色背景 = 勾选框+文字 -->
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal"
+                                                VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,24,0">
+                                        <CheckBox x:Name="chkRemoveWhite" VerticalAlignment="Center">
+                                            <TextBlock x:Name="lblRemoveWhite" Text="去除图章白色背景"
+                                                       Style="{StaticResource TextBlock.AutoContextLabel}" />
+                                        </CheckBox>
+                                    </StackPanel>
+                                    <!-- 列2：容差 = 标题+输入框 -->
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                                VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,24,0">
+                                        <TextBlock x:Name="lblTolerance" Text="容差" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <TextBox x:Name="txtTolerance" Text="20" Width="46" Height="30"
+                                                 VerticalContentAlignment="Center" TextAlignment="Center" Padding="3,3" />
+                                    </StackPanel>
                                 </Grid>
                             </StackPanel>
                         </StackPanel>
@@ -462,41 +591,189 @@
                                 <TextBlock Grid.Column="1" Style="{StaticResource SectionTitle}" Text="其他设置" />
                                 <Button Grid.Column="3" x:Name="btnFoldOther" Style="{StaticResource FoldButton}">
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock x:Name="foldOtherArrow" Text="▶" Margin="0,0,4,0" />
+                                        <Path x:Name="foldOtherArrow" Data="{StaticResource Icon.FoldArrow}"
+                                              Fill="{StaticResource Color.Primary}" Width="10" Height="10" Stretch="Uniform"
+                                              RenderTransformOrigin="0.5,0.5" Margin="0,0,4,0"
+                                              VerticalAlignment="Center" />
                                         <TextBlock x:Name="foldOtherText" Text="展开设置" />
                                     </StackPanel>
                                 </Button>
                             </Grid>
 
                             <StackPanel x:Name="otherContent">
-                                <Grid Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="64" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="数字签名" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                    <ComboBox Grid.Column="1" x:Name="comboSignature" VerticalAlignment="Center">
-                                        <ComboBoxItem Content="不使用" />
-                                        <ComboBoxItem Content="自生成" />
-                                        <ComboBoxItem Content="自定义" />
-                                    </ComboBox>
-                                </Grid>
-                                <WrapPanel Orientation="Horizontal" Margin="0,0,0,8">
-                                    <TextBlock Text="签名/证书" VerticalAlignment="Center" Margin="0,0,5,0" />
-                                    <TextBox x:Name="txtSignature" Width="120" Height="30"
-                                             VerticalContentAlignment="Center" IsEnabled="False" />
-                                    <TextBlock Text="密码" VerticalAlignment="Center" Margin="16,0,5,0" />
-                                    <PasswordBox x:Name="txtSignaturePass" Width="120" Height="30"
-                                                 VerticalContentAlignment="Center" IsEnabled="False" />
-                                </WrapPanel>
+                                <!-- 其他设置区 = 两个独立表格，总宽一致：
+                                     表格1（数字签名区）= 3列等宽 Grid，每列=标题(固定完整显示)+输入控件(自适应)；列间距12
+                                     分隔线（CARD 内功能分区）
+                                     表格2（PDF密码区）= 2列 Grid（PDF密码组 + 空列撑满），列宽自主，不影响表格1 -->
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="64" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="PDF密码" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                    <PasswordBox Grid.Column="1" x:Name="txtPdfPass" VerticalAlignment="Center" />
+                                    <!-- 列1：数字签名 = 标题+下拉（自适应） -->
+                                    <Grid Grid.Column="0" Margin="0,0,12,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="数字签名" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <ComboBox Grid.Column="1" x:Name="comboSignature" Height="30" MinWidth="0"
+                                                  VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                                            <ComboBoxItem Content="不使用" />
+                                            <ComboBoxItem Content="自生成" />
+                                            <ComboBoxItem Content="自定义" />
+                                        </ComboBox>
+                                    </Grid>
+                                    <!-- 列2：签证 = 标题+输入框（自适应，与密码框同宽） -->
+                                    <Grid Grid.Column="1" Margin="0,0,12,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="签证" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <TextBox Grid.Column="1" x:Name="txtSignature" Height="30" IsEnabled="False"
+                                                 VerticalContentAlignment="Center" />
+                                    </Grid>
+                                    <!-- 列3：密码 = 标题+密码框（自适应，与签证输入框同宽） -->
+                                    <Grid Grid.Column="2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="密码" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <PasswordBox Grid.Column="1" x:Name="txtSignaturePass" Height="30" IsEnabled="False"
+                                                     VerticalContentAlignment="Center" />
+                                    </Grid>
                                 </Grid>
+
+                                <!-- 功能分隔线：数字签名区 与 PDF密码 之间，间距20 -->
+                                <Border Height="1" Background="{StaticResource Color.Border}" Margin="0,9,0,10" />
+
+                                <!-- 表格2：PDF密码 = 标题+密码框（2列*+*，组放第一列控件填满，第二列留空 → 尾部与表格3第一列对齐到半行） -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid Grid.Column="0" Margin="0,0,12,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="PDF密码" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <PasswordBox Grid.Column="1" x:Name="txtPdfPass" Height="30"
+                                                     VerticalContentAlignment="Center" />
+                                    </Grid>
+                                </Grid>
+
+                                <!-- 功能分隔线：PDF密码 与 输出文件名格式自定义 之间 -->
+                                <Border Height="1" Background="{StaticResource Color.Border}" Margin="0,9,0,10" />
+
+                                <!-- 表格3：输出文件名格式自定义 = 小节标题 + 2×2表格 + 时间戳行 + 效果预览
+                                     2×2表格（位置/命名文字/递增类型/位数，按文件名实际组成顺序）；
+                                     时间戳行占半行（同 PDF密码 样式）；预览实时显示 -->
+                                <TextBlock Text="输出文件名格式自定义" Margin="0,0,0,8" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <!-- 行1列1：位置 -->
+                                    <Grid Grid.Row="0" Grid.Column="0" Margin="0,0,12,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="位置" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <ComboBox Grid.Column="1" x:Name="comboOutputNamePos" Height="30" MinWidth="0"
+                                                  VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                                            <ComboBoxItem Content="文件名后" />
+                                            <ComboBoxItem Content="文件名前" />
+                                        </ComboBox>
+                                    </Grid>
+                                    <!-- 行1列2：命名文字 -->
+                                    <Grid Grid.Row="0" Grid.Column="1" Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="命名文字" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <TextBox Grid.Column="1" x:Name="txtOutputNameMark" Height="30" MaxLength="30"
+                                                 VerticalContentAlignment="Center" ToolTip="插入文件名中的文字，可包含 V 等前缀；留空则只有编号" />
+                                    </Grid>
+                                    <!-- 行2列1：递增类型 -->
+                                    <Grid Grid.Row="1" Grid.Column="0" Margin="0,0,12,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="递增类型" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <ComboBox Grid.Column="1" x:Name="comboOutputNameSeqType" Height="30" MinWidth="0"
+                                                  VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                                            <ComboBoxItem Content="数字 1、2、3" />
+                                            <ComboBoxItem Content="大写字母 A、B、C" />
+                                            <ComboBoxItem Content="小写字母 a、b、c" />
+                                        </ComboBox>
+                                    </Grid>
+                                    <!-- 行2列2：位数 -->
+                                    <Grid Grid.Row="1" Grid.Column="1">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="位数" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <ComboBox Grid.Column="1" x:Name="comboOutputNamePad" Height="30" MinWidth="0"
+                                                  VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                                            <ComboBoxItem Content="1 位（1）" />
+                                            <ComboBoxItem Content="2 位（01）" />
+                                            <ComboBoxItem Content="3 位（001）" />
+                                        </ComboBox>
+                                    </Grid>
+                                </Grid>
+
+                                <!-- 时间戳行：2列*+*（组放第一列控件填满，第二列留空 → 尾部与表格3第一列对齐到半行；勾选框文字未勾选置灰 §4.6） -->
+                                <Grid Margin="0,10,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid Grid.Column="0" Margin="0,0,12,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox Grid.Column="0" x:Name="chkOutputNameTs" VerticalAlignment="Center" Margin="0,0,6,0"
+                                                  ToolTip="在命名文字之后、编号之前插入时间戳">
+                                            <TextBlock Text="时间戳">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource TextBlock.AutoContextLabel}">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=CheckBox}}" Value="False">
+                                                                <Setter Property="Foreground" Value="{StaticResource Color.TextHint}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </CheckBox>
+                                        <ComboBox Grid.Column="1" x:Name="comboOutputNameTsFormat" Height="30"
+                                                  VerticalContentAlignment="Center" IsEnabled="False">
+                                            <ComboBoxItem Content="20260911" />
+                                            <ComboBoxItem Content="2026-09-11" />
+                                            <ComboBoxItem Content="20260911-2030" />
+                                            <ComboBoxItem Content="2026-09-11-20-30" />
+                                        </ComboBox>
+                                    </Grid>
+                                </Grid>
+
+                                <!-- 效果预览：实时显示两次盖章的文件名 -->
+                                <TextBlock x:Name="txtOutputNamePreview" Margin="0,10,0,0" FontSize="12"
+                                           Foreground="{StaticResource Color.TextSecondary}" TextWrapping="Wrap" />
                             </StackPanel>
                         </StackPanel>
                     </Border>
@@ -549,8 +826,9 @@
                 <!-- 分隔线 -->
                 <Border Grid.Row="2" Background="{StaticResource Color.Border}" />
 
-                <!-- 操作提示区：上=操作提示行（新替换旧），下=系统日志滚动区 -->
-                <Grid Grid.Row="3">
+                <!-- 操作提示区：上=操作提示行（新替换旧），下=系统日志滚动区；
+                     左缩进 15 与上方卡片对齐，右侧不缩进使日志滚动条与上方设置区滚动条右缘对齐 -->
+                <Grid Grid.Row="3" Margin="15,0,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
@@ -562,12 +840,14 @@
                                    Text="拖入 PDF 文件开始" Foreground="#1F4E79" TextWrapping="Wrap"
                                    VerticalAlignment="Top" />
                     </Border>
-                    <!-- 系统日志：黑色带时间戳（错误红色），可滚动 -->
-                    <Border Grid.Row="1" Background="{StaticResource Color.InfoBg}">
-                        <ScrollViewer x:Name="logScroll" VerticalScrollBarVisibility="Auto" Padding="15,8,15,8">
+                    <!-- 系统日志：黑色带时间戳（错误红色），可滚动；Card 圆角卡片样式与周边分区统一。
+                         底部贴窗口边缘（外框底部 margin 已为 0）；右侧内边距收窄使滚动条贴边。
+                         内容外包一层底部 Padding=16 的 Border：Padding 必然计入内容总高，
+                         保证滚动到底时最后一行文字离视口底 ≥16px，不会被底部边界裁成半行 -->
+                    <Border x:Name="logCard" Grid.Row="1" Style="{StaticResource Card}" Padding="14,16,2,16" Margin="0,0,0,12">
+                        <ScrollViewer x:Name="logScroll" VerticalScrollBarVisibility="Auto">
                             <TextBlock x:Name="logText" AutomationProperties.AutomationId="logText"
-                                       Style="{StaticResource LogText}" Text="就绪" VerticalAlignment="Top"
-                                       Margin="0,0,0,10" />
+                                       Style="{StaticResource LogText}" Text="就绪" VerticalAlignment="Top" />
                         </ScrollViewer>
                     </Border>
                 </Grid>
@@ -603,44 +883,88 @@
                 </Border>
             </Grid>
 
-            <!-- 工具栏 -->
+            <!-- 工具栏（V147：一行三列表格结构，组1|线|组2|线|组3；外层 WrapPanel 仅作极窄兜底整行换行） -->
             <Border x:Name="previewToolbar" Grid.Row="1" Background="{StaticResource Color.CardBg}"
                     BorderBrush="{StaticResource Color.Border}" BorderThickness="1"
-                    CornerRadius="6" Padding="8,6" Margin="0,0,0,8">
-                <WrapPanel x:Name="previewToolbarWrap" Orientation="Horizontal" VerticalAlignment="Center">
-                    <!-- 翻页组 -->
-                    <StackPanel Orientation="Horizontal">
-                        <Button x:Name="btnPrev" Style="{StaticResource Button.Secondary}" Content="上一页"
-                                Height="30" Padding="12,0" Margin="0,0,6,0" />
-                        <Button x:Name="btnNext" Style="{StaticResource Button.Secondary}" Content="下一页"
-                                Height="30" Padding="12,0" Margin="0,0,8,0" />
-                        <TextBox x:Name="txtPageNow" Width="50" Height="30" Padding="0"
-                                 TextAlignment="Center" VerticalContentAlignment="Center" Margin="0,0,4,0" />
-                        <TextBlock x:Name="txtPageTotal" Text="/ 0 页" VerticalAlignment="Center"
-                                   FontSize="12.5" Foreground="#333333" Margin="0,0,22,0" />
+                    CornerRadius="6" Padding="8,6" Margin="0,0,0,8" ClipToBounds="True">
+                <!-- V151：三个功能块（翻页/缩放/视图）水平排列，块间固定间距 8；宽度足够时三块整体居中，块内元素居中。
+                     每块宽由内部形态决定（翻页/缩放按钮：文字 76↔图标 30；视图按钮：四字 80↔两字 50↔一字 40），
+                     全部固定宽 → 判定纯算术，零测量零布局判定，由 Grid/WrapPanel 引擎天然稳定。
+                     极端窄（<512）右侧裁剪兜底，不再换行，与左侧设置区行为一致。 -->
+                <Grid x:Name="previewToolbarInner" ClipToBounds="True">
+                    <StackPanel x:Name="toolbarStack" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <!-- 块1：翻页（双形态：完整文字 ↔ 图标） -->
+                        <Border x:Name="toolbarBlock1" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="btnPrev" Style="{StaticResource Button.Secondary}" Height="30" Width="76"
+                                        Padding="8,0" Margin="0,0,6,0" ToolTip="上一页">
+                                    <Grid>
+                                        <TextBlock x:Name="txtPrevText" Text="上一页" Visibility="Visible"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        <Path x:Name="pathPrev" Data="{StaticResource Icon.ArrowLeftSign}" Fill="#1F2329" Stretch="Uniform"
+                                              Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
+                                    </Grid>
+                                </Button>
+                                <Button x:Name="btnNext" Style="{StaticResource Button.Secondary}" Height="30" Width="76"
+                                        Padding="8,0" Margin="0,0,8,0" ToolTip="下一页">
+                                    <Grid>
+                                        <TextBlock x:Name="txtNextText" Text="下一页" Visibility="Visible"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        <Path x:Name="pathNext" Data="{StaticResource Icon.ArrowRightSign}" Fill="#1F2329" Stretch="Uniform"
+                                              Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
+                                    </Grid>
+                                </Button>
+                                <TextBox x:Name="txtPageNow" Width="50" Height="30" Padding="0"
+                                         TextAlignment="Center" VerticalContentAlignment="Center" Margin="0,0,4,0" />
+                                <TextBlock x:Name="txtPageTotal" Text="/ 0 页" VerticalAlignment="Center"
+                                           FontSize="12.5" Foreground="#333333" Width="48" TextAlignment="Right" />
+                            </StackPanel>
+                        </Border>
+                        <!-- V152：块间分隔线（线两侧各 8px 间距），块1与块2 之间 -->
+                        <Border Width="1" Height="18" Margin="8,0,8,0" VerticalAlignment="Center"
+                                Background="{StaticResource Color.Border}" />
+                        <!-- 块2：缩放（双形态：完整文字 ↔ 图标），块间间距 8 -->
+                        <Border x:Name="toolbarBlock2" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="btnZoomOut" Style="{StaticResource Button.Secondary}" Height="30" Width="76"
+                                        Padding="8,0" Margin="0,0,6,0" ToolTip="缩小">
+                                    <Grid>
+                                        <TextBlock x:Name="txtZoomOutText" Text="缩小" Visibility="Visible"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        <Path x:Name="pathZoomOut" Data="{StaticResource Icon.MinusSign}" Fill="#1F2329" Stretch="Uniform"
+                                              Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
+                                    </Grid>
+                                </Button>
+                                <Button x:Name="btnZoomIn" Style="{StaticResource Button.Secondary}" Height="30" Width="76"
+                                        Padding="8,0" Margin="0,0,8,0" ToolTip="放大">
+                                    <Grid>
+                                        <TextBlock x:Name="txtZoomInText" Text="放大" Visibility="Visible"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        <Path x:Name="pathZoomIn" Data="{StaticResource Icon.PlusSign}" Fill="#1F2329" Stretch="Uniform"
+                                              Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
+                                    </Grid>
+                                </Button>
+                                <TextBox x:Name="txtZoomNow" Width="50" Height="30" Padding="0"
+                                         TextAlignment="Center" VerticalContentAlignment="Center" Margin="0,0,4,0" />
+                                <TextBlock x:Name="txtPercent" Text="%" VerticalAlignment="Center" FontSize="12.5" Foreground="#333333" Width="20" TextAlignment="Right" />
+                            </StackPanel>
+                        </Border>
+                        <!-- V152：块间分隔线（线两侧各 8px 间距），块2与块3 之间 -->
+                        <Border Width="1" Height="18" Margin="8,0,8,0" VerticalAlignment="Center"
+                                Background="{StaticResource Color.Border}" />
+                        <!-- 块3：视图（三形态：四字/两字/一字），块间间距 8 -->
+                        <Border x:Name="toolbarBlock3" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <ToggleButton x:Name="btnFitPage" Style="{StaticResource Toggle.ViewMode}" Content="单页视图"
+                                        Height="30" Width="80" Padding="12,0" Margin="0,0,6,0" />
+                                <ToggleButton x:Name="btnFitWidth" Style="{StaticResource Toggle.ViewMode}" Content="放大视图"
+                                        Height="30" Width="80" Padding="12,0" Margin="0,0,6,0" />
+                                <ToggleButton x:Name="btnFitDouble" Style="{StaticResource Toggle.ViewMode}" Content="双页视图"
+                                        Height="30" Width="80" Padding="12,0" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
-                    <Border x:Name="previewToolbarSep1" Width="1" Height="18" Background="{StaticResource Color.Border}" VerticalAlignment="Center" Margin="0,0,22,0" />
-                    <!-- 缩放组 -->
-                    <StackPanel Orientation="Horizontal">
-                        <Button x:Name="btnZoomOut" Style="{StaticResource Button.Secondary}" Content="缩小"
-                                Height="30" Padding="12,0" Margin="0,0,6,0" />
-                        <Button x:Name="btnZoomIn" Style="{StaticResource Button.Secondary}" Content="放大"
-                                Height="30" Padding="12,0" Margin="0,0,8,0" />
-                        <TextBox x:Name="txtZoomNow" Width="50" Height="30" Padding="0"
-                                 TextAlignment="Center" VerticalContentAlignment="Center" Margin="0,0,4,0" />
-                        <TextBlock x:Name="txtPercent" Text="%" VerticalAlignment="Center" FontSize="12.5" Foreground="#333333" Margin="0,0,22,0" />
-                    </StackPanel>
-                    <Border x:Name="previewToolbarSep2" Width="1" Height="18" Background="{StaticResource Color.Border}" VerticalAlignment="Center" Margin="0,0,22,0" />
-                    <!-- 视图组 -->
-                    <StackPanel Orientation="Horizontal">
-                        <ToggleButton x:Name="btnFitPage" Style="{StaticResource Toggle.ViewMode}" Content="单页视图"
-                                Height="30" Padding="12,0" Margin="0,0,6,0" />
-                        <ToggleButton x:Name="btnFitWidth" Style="{StaticResource Toggle.ViewMode}" Content="放大视图"
-                                Height="30" Padding="12,0" Margin="0,0,6,0" />
-                        <ToggleButton x:Name="btnFitDouble" Style="{StaticResource Toggle.ViewMode}" Content="双页视图"
-                                Height="30" Padding="12,0" />
-                    </StackPanel>
-                </WrapPanel>
+                </Grid>
             </Border>
 <!-- 画布 -->
             <Border Grid.Row="2" x:Name="previewBorder" Background="#E9EBF0" CornerRadius="8" ClipToBounds="True">
@@ -671,15 +995,7 @@
                             </Grid>
                         </Grid>
                     </ScrollViewer>
-                    <!-- 初始占位：白色 PDF 页面（A4比例），Viewbox 自动按预览区大小等比缩放填充，与单页视图一致 -->
-                    <Viewbox x:Name="previewPlaceholderViewbox" Stretch="Uniform" Margin="20">
-                        <Border Background="White"
-                                Width="520" Height="735"
-                                BorderBrush="#CCCCCC" BorderThickness="1">
-                            <TextBlock Text="请上传 PDF 文件" Foreground="#666666" FontSize="22"
-                                       HorizontalAlignment="Stretch" TextAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                    </Viewbox>
+                    <!-- 初始占位已由内置调试 PDF 承担（启动即加载 A4 调试页，文字"拖入或选择：PDF 文件 / 文件夹"） -->
                 </Grid>
             </Border>
         </Grid>

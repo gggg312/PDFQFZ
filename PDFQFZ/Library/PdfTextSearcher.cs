@@ -283,6 +283,9 @@ namespace PDFQFZ.Library
         public double CenterY => (Bottom + Top) / 2.0;
 
         public string MatchedText { get; set; }
+
+        /// <summary>匹配处上下文原文（仅关键词过滤版 FindAll 生成：前后各 contextRange 字，含空格/换行，用于诊断关键词匹配）。</summary>
+        public string Context { get; set; }
     }
 
     /// <summary>
@@ -540,6 +543,7 @@ namespace PDFQFZ.Library
                                         textPage, pageIndex, startChar, charCount, pageWidth, pageHeight);
                                     if (match != null)
                                     {
+                                        match.Context = context;
                                         results.Add(match);
                                     }
                                 }
