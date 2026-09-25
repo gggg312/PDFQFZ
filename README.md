@@ -107,3 +107,9 @@
 - PDF 渲染使用开源 PDFium（`PdfiumViewer.Updated 2.14.5`、`bblanchon.PDFium.Win32 153.0.8009`），x86/x64 原生组件均嵌入 EXE，首次运行时自动解压到 EXE 同目录加载（不依赖系统临时文件夹）；
 - PDF 写入使用 iTextSharp 5.5.13.6；
 - 许可情况见 `LICENSING.md` 与 `THIRD-PARTY-NOTICES.md`。
+
+## 支持开发者
+
+如果你觉得这个工具对你日常工作有帮助，欢迎到我的爱发电主页支持我，每一份支持都是我持续维护与优化的动力：
+
+**爱发电主页：[https://afdian.com/a/gggg312](https://afdian.com/a/gggg312)**
